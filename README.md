@@ -187,10 +187,4 @@ All payments use **USDC on Arbitrum Sepolia**.
 
 ---
 
-## Team
-
-**Shubh Kesharwani** · **Garvit Dadheech**
-
----
-
 **Axon — The execution layer for autonomous AI.**
