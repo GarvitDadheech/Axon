@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.pnp.*
+
+# Build outputs
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary
+.tmp/
+tmp/
+temp/
+
+# Testing
+coverage/
+.nyc_output/
+
+# Private keys (extra safety)
+*.keypair
+*.key
+keypair*.json
+
+.claude/settings.json
