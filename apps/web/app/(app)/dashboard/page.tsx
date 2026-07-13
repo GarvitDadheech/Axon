@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { shortenAddress, formatAmount } from "@/lib/utils";
 import { useUniversalAccount } from "@/hooks/use-universal-account";
+import { AgentWalletPanel } from "@/components/agent-wallet-panel";
+import { TransferModal } from "@/components/wallet-modal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -238,6 +240,8 @@ export default function DashboardPage() {
   const [search, setSearch] = useState("");
   const [loadingData, setLoadingData] = useState(true);
   const [loadingMarket, setLoadingMarket] = useState(true);
+  const [fundModalOpen, setFundModalOpen] = useState(false);
+  const [fundRecipient, setFundRecipient] = useState("");
 
   const fetchDashboard = useCallback(async () => {
     setLoadingData(true);
@@ -352,6 +356,22 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
+
+      <Panel title="Agent wallet & policy" meta="Openfort · required for MCP">
+        <AgentWalletPanel
+          onFundSepolia={(addr) => {
+            setFundRecipient(addr);
+            setFundModalOpen(true);
+          }}
+        />
+      </Panel>
+
+      <TransferModal
+        open={fundModalOpen}
+        onClose={() => setFundModalOpen(false)}
+        defaultRecipient={fundRecipient}
+        defaultAmount="5"
+      />
 
       {/* Agent activity — first thing users see */}
       <Panel title="Agent activity" meta="live feed">

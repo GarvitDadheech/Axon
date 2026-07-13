@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useAuth } from "@/components/providers";
-import { getMagic } from "@/lib/magic";
+// Particle Auth EIP-1193 provider via useAuth().ethereumProvider
 import {
   ArrowUpRight,
   CheckCircle2,
@@ -53,20 +53,36 @@ function isValidAddress(addr: string): boolean {
 interface TransferModalProps {
   open: boolean;
   onClose: () => void;
+  /** Prefill recipient (e.g. Openfort agent wallet address). */
+  defaultRecipient?: string;
+  defaultAmount?: string;
 }
 
-export function TransferModal({ open, onClose }: TransferModalProps) {
-  const { user } = useAuth();
+export function TransferModal({
+  open,
+  onClose,
+  defaultRecipient = "",
+  defaultAmount = "",
+}: TransferModalProps) {
+  const { user, ethereumProvider } = useAuth();
 
   const fromAddress = user?.wallet ?? "";
 
-  const [recipient, setRecipient] = useState("");
-  const [amount, setAmount] = useState("");
+  const [recipient, setRecipient] = useState(defaultRecipient);
+  const [amount, setAmount] = useState(defaultAmount);
   const [token, setToken] = useState<Token>("USDC");
   const [state, setState] = useState<ModalState>("idle");
   const [txHash, setTxHash] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [copiedHash, setCopiedHash] = useState(false);
+
+  // Sync prefills when modal opens with new defaults
+  useEffect(() => {
+    if (open) {
+      if (defaultRecipient) setRecipient(defaultRecipient);
+      if (defaultAmount) setAmount(defaultAmount);
+    }
+  }, [open, defaultRecipient, defaultAmount]);
 
   const recipientValid = recipient === "" || isValidAddress(recipient);
   const formValid =
@@ -77,13 +93,13 @@ export function TransferModal({ open, onClose }: TransferModalProps) {
   const canSend = state === "idle" && formValid;
 
   const reset = useCallback(() => {
-    setRecipient("");
-    setAmount("");
+    setRecipient(defaultRecipient);
+    setAmount(defaultAmount);
     setToken("USDC");
     setState("idle");
     setTxHash(null);
     setErrorMsg("");
-  }, []);
+  }, [defaultRecipient, defaultAmount]);
 
   const handleClose = useCallback(() => {
     reset();
@@ -96,8 +112,10 @@ export function TransferModal({ open, onClose }: TransferModalProps) {
     setErrorMsg("");
 
     try {
-      const provider = getMagic()?.rpcProvider;
-      if (!provider) throw new Error("Wallet not available");
+      const provider = ethereumProvider as {
+        request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+      } | null;
+      if (!provider) throw new Error("Particle wallet not available");
 
       let hash: string;
 
@@ -133,7 +151,7 @@ export function TransferModal({ open, onClose }: TransferModalProps) {
       setErrorMsg(msg.length > 120 ? msg.slice(0, 120) + "…" : msg);
       setState("error");
     }
-  }, [fromAddress, canSend, token, amount, recipient]);
+  }, [fromAddress, canSend, token, amount, recipient, ethereumProvider]);
 
   const copyHash = useCallback(async () => {
     if (!txHash) return;

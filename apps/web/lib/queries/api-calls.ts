@@ -63,6 +63,19 @@ export interface UserStats {
   total_fees: string;
 }
 
+/** Sum of successful USDC spend for this user since UTC midnight. */
+export async function getSpentToday(userId: number): Promise<number> {
+  const row = await queryOne<{ spent: string }>(
+    `SELECT COALESCE(SUM(amount_spent), 0)::TEXT AS spent
+     FROM api_calls
+     WHERE user_id = $1
+       AND status = 'success'
+       AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')`,
+    [userId]
+  );
+  return parseFloat(row?.spent ?? "0");
+}
+
 export async function getUserStats(userId: number): Promise<UserStats> {
   const row = await queryOne<UserStats>(
     `SELECT

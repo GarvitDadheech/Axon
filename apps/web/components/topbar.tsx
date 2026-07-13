@@ -1,8 +1,7 @@
 "use client";
 
 import { useAuth } from "@/components/providers";
-import { getMagic } from "@/lib/magic";
-import { LogOut, Copy, ChevronDown, ArrowUpRight, KeyRound, Loader2, RefreshCw } from "lucide-react";
+import { LogOut, Copy, ChevronDown, ArrowUpRight, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -33,14 +32,6 @@ export function Topbar() {
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }, [address]);
-
-  const handleRevealKey = useCallback(async () => {
-    try {
-      await getMagic()?.user.revealEVMPrivateKey();
-    } catch {
-      // Magic handles error display internally
-    }
-  }, []);
 
   const initials = user?.email
     ? user.email.slice(0, 2).toUpperCase()
@@ -136,14 +127,6 @@ export function Topbar() {
               >
                 <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
                 Transfer funds
-              </DropdownMenuItem>
-
-              <DropdownMenuItem
-                className="cursor-pointer gap-2 text-sm"
-                onClick={handleRevealKey}
-              >
-                <KeyRound className="h-4 w-4 text-muted-foreground" />
-                Reveal private key
               </DropdownMenuItem>
 
               <DropdownMenuSeparator />

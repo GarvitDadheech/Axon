@@ -1,8 +1,8 @@
 # Axon — Hackathon Sponsor Integration Guide
 
-**Axon** is the execution layer for autonomous AI: a user logs in with Google, gets a chain-abstracted "Agent balance," and every paid tool call an AI agent makes (via MCP) is executed and settled automatically — no wallet popups, no bridges, no gas UX, no manual approvals.
+**Axon** is the execution layer for autonomous AI: a user logs in with **Particle Auth**, gets a chain-abstracted "Agent balance" via **Particle Universal Accounts (EIP-7702)**, and every paid tool call an AI agent makes (via MCP) is settled automatically by an **Openfort** agent wallet on **Arbitrum** — no wallet popups, no bridges, no gas UX, no manual approvals.
 
-This doc is the concrete, file-and-code-level reference for how each sponsor technology is wired into the repo. It supersedes the previous "Plugix on Monad with Privy" design — see `README.md` for the high-level architecture and quick start.
+This doc is the file-and-code-level reference for how each sponsor technology is wired. It supersedes earlier Plugix (Privy/Monad) and Magic-auth designs — see `README.md` for quick start and `docs/magic-to-particle-auth.md` for the Magic → Particle Auth map.
 
 ---
 
@@ -12,7 +12,8 @@ This doc is the concrete, file-and-code-level reference for how each sponsor tec
                           ┌─────────────────────────────────────────┐
                           │              apps/web (Next.js)           │
                           │                                            │
-  User (Google) ───────▶  │  Magic embedded wallet (lib/magic.ts)     │
+  User (email/Google/…) ▶ │  Particle Auth embedded wallet            │
+                          │  (AuthKit — components/providers.tsx)     │
                           │        │                                   │
                           │        ▼                                   │
                           │  Particle Universal Account (EIP-7702)     │
@@ -32,9 +33,9 @@ This doc is the concrete, file-and-code-level reference for how each sponsor tec
                           │  Arbitrum Sepolia — USDC settlement        │
                           └─────────────────────────────────────────┘
                                        ▲
-                                       │  optional Bearer <Magic DID token>
+                                       │  required Bearer <uuid:token>
                           ┌────────────┴────────────┐
-                          │   Claude (via MCP)        │
+                          │   Claude / Cursor (MCP)   │
                           │   /api/mcp                │
                           └───────────────────────────┘
 
@@ -44,8 +45,8 @@ Optional funding path (documented, not implemented):
 
 Two wallet objects exist per user, but the UI only ever shows **one "Agent balance"**:
 
-1. **Magic embedded wallet → Particle Universal Account** — the user's own treasury/identity. Holds the top-up funds; unified balance shown in the dashboard/topbar.
-2. **Openfort backend (agent) wallet** — Axon-controlled, server-side "spend engine." Signs and pays for tool calls on the user's behalf under a per-call spending cap, without a popup.
+1. **Particle Auth EOA → Particle Universal Account** — the user's treasury/identity. Same address via EIP-7702; unified balance in the dashboard/topbar.
+2. **Openfort backend (agent) wallet** — Axon-controlled spend engine. Pays tool calls under a per-call / per-day spending policy, without a popup.
 
 ---
 
@@ -65,13 +66,13 @@ _ua = new UniversalAccount({
   smartAccountOptions: {
     name: "Axon",
     version: "2.0.0",
-    ownerAddress,       // the Magic embedded wallet's address
+    ownerAddress,       // Particle Auth embedded EOA address
     useEIP7702: true,   // upgrade the EOA in place — same address, no migration
   },
 });
 ```
 
-`ownerAddress` is the Magic wallet's EVM address (see §3) — the Universal Account is built directly on top of it via EIP-7702, so **the user keeps the same address** and never sees a second wallet.
+`ownerAddress` is the Particle Auth wallet address from `useAuth().user.wallet` (§3). The Universal Account is built on that EOA via EIP-7702 — **same address**, no second wallet.
 
 ### Fetching the unified balance
 
@@ -79,9 +80,9 @@ _ua = new UniversalAccount({
 // apps/web/lib/particle-ua.ts
 export async function fetchAgentBalance(ownerAddress: string): Promise<AgentBalance> {
   const ua = getUniversalAccount(ownerAddress);
-  if (!ua) return MOCK_BALANCE; // demo mode — see below
+  if (!ua) return MOCK_BALANCE;
 
-  const assets = await ua.getPrimaryAssets();       // unified balance across all chains
+  const assets = await ua.getPrimaryAssets();
   const usdc = assets.assets.find((a) => a.tokenType === SUPPORTED_TOKEN_TYPE.USDC);
   const arbitrumUsdc = usdc?.chainAggregation.find(
     (c) => c.token.chainId === CHAIN_ID.ARBITRUM_MAINNET_ONE
@@ -94,72 +95,96 @@ export async function fetchAgentBalance(ownerAddress: string): Promise<AgentBala
 }
 ```
 
-Exposed to the UI via `apps/web/hooks/use-universal-account.ts` (`useUniversalAccount(address)`), consumed by:
-- `apps/web/components/topbar.tsx` — the "Agent balance" dropdown card
-- `apps/web/app/(app)/dashboard/page.tsx` — the "Agent balance" strip
+UI consumers:
+- `apps/web/components/topbar.tsx` — "Agent balance" dropdown
+- `apps/web/app/(app)/dashboard/page.tsx` — balance strip + agent wallet panel
 
-### Cross-chain value move (demo)
+### Cross-chain value move
 
-`POST /api/ua/simulate-deposit` (`apps/web/app/api/ua/simulate-deposit/route.ts`) simulates a deposit from another chain (Base/Ethereum/Solana) landing in the UA balance, returning a source-chain tx hash and settlement metadata. This satisfies the "at least one cross-chain value move" deliverable without requiring a funded multi-chain testnet wallet for the demo — the same code path (`ua.createTransferTransaction` / `ua.getPrimaryAssets`) is what a production integration would call for a real deposit.
+Dashboard **UA → agent wallet** uses `transferViaUniversalAccount()` in `lib/particle-ua.ts`:
 
-### Known limitation (be upfront about this in the demo)
+1. `ua.createTransferTransaction({ token: Arbitrum USDC, amount, receiver: openfortAgentAddress })`
+2. User signs `rootHash` (+ optional EIP-7702 auths) via Particle Auth's EIP-1193 provider
+3. `ua.sendTransaction(...)` routes liquidity across chains into Arbitrum USDC for the agent wallet
 
-The installed SDK's `CHAIN_ID` enum only lists **mainnets** (`ARBITRUM_MAINNET_ONE`, `ETHEREUM_MAINNET`, `BASE_MAINNET`, `BSC_MAINNET`, `XLAYER_MAINNET`, `SOLANA_MAINNET`) — Universal Accounts aggregate real cross-chain liquidity, so there's no Arbitrum Sepolia entry. The rest of Axon's settlement (Openfort + x402, §5) runs on Arbitrum Sepolia for the hackathon demo; UA balance reads are the part of the stack that would run on mainnet in production. This is a one-file boundary (`lib/particle-ua.ts`) — swapping to mainnet chain IDs when real funds are involved is a one-line change.
+That is the Universal Accounts track deliverable (real cross-chain value move when Particle keys + UA liquidity are present).
 
-### Demo mode
+`POST /api/ua/simulate-deposit` remains a lightweight demo endpoint that returns synthetic deposit metadata for curl / timeline demos without mainnet funds.
 
-When `NEXT_PUBLIC_PARTICLE_PROJECT_ID` / `NEXT_PUBLIC_PARTICLE_CLIENT_KEY` / `NEXT_PUBLIC_PARTICLE_APP_ID` are unset, `getUniversalAccount()` returns `null` and `fetchAgentBalance()` returns a fixed demo balance (`{ unifiedUsd: "128.40", arbitrumUsdc: "84.00", stub: true }`), surfaced in the UI as "Agent balance (demo)". This lets the whole dashboard flow demo cleanly before real Particle credentials are added.
+### Known limitation
+
+The UA SDK `CHAIN_ID` enum lists **mainnets** only. Openfort + x402 settlement for the hackathon runs on **Arbitrum Sepolia**; UA balances/transfers use mainnet liquidity concepts. Boundary is `lib/particle-ua.ts`.
+
+### Demo / stub balance
+
+If Particle public keys are unset (auth itself requires them), `fetchAgentBalance` can still return a fixed mock `{ unifiedUsd: "128.40", arbitrumUsdc: "84.00", stub: true }` labeled "Agent balance (demo)".
 
 ---
 
-## 3. Magic Embedded Wallets
+## 3. Particle Auth (login + embedded wallet)
 
-**Packages:** `magic-sdk@^33.9.0`, `@magic-ext/oauth2@^15.10.0` (client), `@magic-sdk/admin@^2.8.2` (server)
+**Packages:** `@particle-network/authkit@^2.1.1`, `@particle-network/auth-core@^2.1.1`
 
-### Client: `apps/web/lib/magic.ts`
+**Docs:** [Particle Auth Web SDK](https://developers.particle.network/social-logins/auth/desktop-sdks/web)
 
-```ts
-_magic = new Magic(key, {
-  network: { rpcUrl: ARBITRUM_SEPOLIA_RPC, chainId: ARBITRUM_SEPOLIA_CHAIN_ID },
-  extensions: [new OAuthExtension()],
-});
-```
+### Client: `apps/web/components/providers.tsx`
 
-The wallet is pinned to Arbitrum Sepolia at construction time — Magic embedded wallets don't support runtime `wallet_switchEthereumChain` the way an injected/Privy wallet does, so the network is fixed here instead of negotiated at send-time.
-
-### Auth flow (frontend): `apps/web/components/providers.tsx`
-
-- `login()` calls `magic.oauth2.loginWithRedirect({ provider: "google", redirectURI: window.location.origin + "/" })`.
-- On return, the same `AuthProvider` effect detects the OAuth redirect (`window.location.search.includes("provider=")`) and calls `magic.oauth2.getRedirectResult()`, which resolves `{ magic: { idToken, userMetadata } }`.
-- `useAuth()` (exported from the same file) exposes `{ ready, authenticated, user: { email, wallet }, login, logout, getIdToken }` — a drop-in replacement for the old `usePrivy()` shape used throughout the app (`auth-gate.tsx`, `topbar.tsx`, `wallet-modal.tsx`, `dashboard/page.tsx`, `publish/page.tsx`).
-- `getIdToken()` returns a fresh Magic DID token, sent as `Authorization: Bearer <token>` on every authenticated API call (see `dashboard/page.tsx::fetchDashboard`).
-
-### Server: `apps/web/lib/magic-admin.ts`
+Wraps the app in `AuthCoreContextProvider` with project credentials and `arbitrumSepolia` as the configured chain:
 
 ```ts
-export async function verifyDidToken(didToken: string): Promise<VerifiedMagicUser> {
-  const admin = magicAdmin();               // new Magic(MAGIC_SECRET_KEY) from @magic-sdk/admin
-  admin.token.validate(didToken);           // throws if expired/malformed/replayed
-  const metadata = await admin.users.getMetadataByToken(didToken);
-  return {
-    issuer: metadata.issuer ?? admin.token.getIssuer(didToken),
-    walletAddress: metadata.publicAddress,
-    email: metadata.email,
-  };
-}
+<AuthCoreContextProvider
+  options={{
+    projectId, clientKey, appId,
+    chains: [arbitrumSepolia],
+    authTypes: ["email", "google", "apple", "twitter"],
+    themeType: "dark",
+    wallet: { visible: true, themeType: "dark" },
+  }}
+>
+  <ParticleAuthBridge>{children}</ParticleAuthBridge>
+</AuthCoreContextProvider>
 ```
 
-`apps/web/lib/auth.ts` wraps this in the same route-handler helper shape the app already used for Privy:
+`ParticleAuthBridge` uses:
 
-- `requireMagic(req)` → verifies the Bearer token, returns `{ magicIssuer, wallet, email }` or a 401 `Response`.
-- `getAuthUser(req)` → `requireMagic` + `upsertUser()` (auto-creates/updates the Postgres `users` row on every authenticated request).
-- `getOptionalAuthUser(req)` → returns `null` instead of a 401 when no token is present — used by `/api/mcp` so unauthenticated MCP clients keep working (§7).
+- `useConnect()` → `connect({})` / `disconnect()` for login modal + logout
+- `useAuthCore()` → `userInfo` (`uuid`, `token`, email, wallets)
+- `useEthereum()` → EIP-1193 `provider`, `address`, `switchChain`
 
-Every route that used to call `getAuthUser`/`requirePrivy` (`/api/apis`, `/api/stats`, `/api/user/init`, `/api/user/enable-server-signing`) needed only a one-line import swap — the bearer-token contract didn't change.
+`useAuth()` exposes the same app shape as before:
+
+```ts
+{ ready, authenticated, user: { email, wallet, particleUserId }, login, logout, getIdToken, ethereumProvider }
+```
+
+`getIdToken()` returns **`uuid:token`** (Particle session), sent as `Authorization: Bearer <uuid:token>` on every authenticated API call.
+
+Helpers: `apps/web/lib/particle-auth.ts` (`particleAuthConfigured`, `encodeParticleBearer`).
+
+### Server: `apps/web/lib/particle-auth-server.ts`
+
+Verifies the Bearer payload via Particle's `getUserInfo` RPC ([docs](https://developers.particle.network/social-logins/api/server/getuserinfo)):
+
+```ts
+// Basic auth: projectId / PARTICLE_SERVER_KEY
+POST https://api.particle.network/server/rpc
+{ method: "getUserInfo", params: [uuid, token] }
+→ { uuid, email, wallets: [{ chain: "evm_chain", publicAddress }] }
+```
+
+`apps/web/lib/auth.ts`:
+
+- `requireParticle(req)` → `{ particleUserId, wallet, email }` or 401
+- `getAuthUser(req)` → `requireParticle` + `upsertUser()` on `users.particle_user_id`
+- MCP and all protected routes use `getAuthUser` (auth **required**)
 
 ### Mapping to the Universal Account
 
-The Magic wallet's address (`user.wallet`, resolved from `metadata.wallets.ethereum.publicAddress`) is passed directly as `ownerAddress` to `new UniversalAccount(...)` (§2) — Particle upgrades that exact EOA via EIP-7702, so there's no separate "UA address" to manage.
+`user.wallet` (Particle Auth EOA) is passed as `ownerAddress` to `UniversalAccount` (§2). EIP-7702 upgrades that same address in place.
+
+### Wallet UI
+
+`apps/web/components/wallet-modal.tsx` sends txs via `useAuth().ethereumProvider.request({ method: "eth_sendTransaction", ... })` on Arbitrum Sepolia (manual fund of the Openfort agent address).
 
 ---
 
@@ -171,22 +196,19 @@ The Magic wallet's address (`user.wallet`, resolved from `metadata.wallets.ether
 export const ARBITRUM_CHAIN_ID = 421614; // Arbitrum Sepolia
 export const ARBITRUM_CAIP2 = `eip155:${ARBITRUM_CHAIN_ID}`;
 export const USDC_DECIMALS = 6;
-export function arbitrumRpcUrl(): string { return env().ARBITRUM_RPC_URL; }
-export function usdcAddress(): `0x${string}` { return env().ARBITRUM_USDC_ADDRESS as `0x${string}`; }
 ```
 
-- **RPC**: `ARBITRUM_RPC_URL`, defaults to `https://sepolia-rollup.arbitrum.io/rpc`.
-- **USDC**: `ARBITRUM_USDC_ADDRESS`, defaults to `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` (native USDC, Arbitrum Sepolia).
+- **RPC**: `ARBITRUM_RPC_URL` (default public Sepolia rollup RPC)
+- **USDC**: `ARBITRUM_USDC_ADDRESS` = `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d`
 
 ### Where transfers happen
 
-- `apps/web/app/api/balance/route.ts` — raw JSON-RPC `eth_getBalance` / `eth_call(balanceOf)` against Arbitrum, used for the low-level on-chain balance check (separate from the Particle UA aggregate figure).
-- `packages/client/src/serverWalletPayer.ts` — the shared-platform-wallet payer (viem `sendTransaction`), used as the fallback payer when a call isn't attributable to a specific user (§7). Defaults updated from Monad → `DEFAULT_CHAIN_ID = 421614` (`packages/client/src/constants.ts`), chain metadata now `"Arbitrum Sepolia"` / native currency `ETH`.
-- `apps/web/lib/openfort.ts::payWithAgentWallet` — the per-user path; builds the same ERC-20 `transfer` calldata but submits it via Openfort's gasless relayer instead of a raw private key (§5).
-- `packages/sdk/src/constants.ts` — the x402 *receiving* side's defaults (`USDC_ADDRESS`, `USDC_NETWORK = "arbitrum-sepolia"`, `ARBITRUM_CHAIN_ID`), used by any Express endpoint wrapped in `usdcPaywall`.
-- `apps/web/components/wallet-modal.tsx` — the user-facing "Transfer funds" modal, signs directly via `getMagic()?.rpcProvider` (`eth_sendTransaction`) against Arbitrum Sepolia for manual sends.
+- `apps/web/app/api/balance/route.ts` — raw on-chain ETH/USDC for an address
+- `apps/web/lib/openfort.ts::payWithAgentWallet` — agent USDC `transfer` + `x402:<reference>` calldata via Openfort (gas policy optional)
+- `packages/sdk` — x402 receiving side (`usdcPaywall`) verifies Transfer logs + reference binding on Arbitrum
+- `wallet-modal.tsx` — user-initiated Particle Auth transfers to fund the agent wallet
 
-Every USDC amount is 6-decimal (`USDC_DECIMALS`), consistent across the Openfort payer, the shared payer, and the x402 verifier.
+All USDC amounts use 6 decimals.
 
 ---
 
@@ -196,173 +218,182 @@ Every USDC amount is 6-decimal (`USDC_DECIMALS`), consistent across the Openfort
 
 **File:** `apps/web/lib/openfort.ts`
 
-### Provisioning a per-user agent wallet
+**Openfort product:** [Backend wallets](https://www.openfort.io/docs/products/server) (not Embedded / Shield).
+
+### Provisioning
 
 ```ts
-export async function getOrCreateAgentWallet(user: DBUser): Promise<AgentWallet> {
-  if (!openfortConfigured()) { /* stub mode — see below */ }
-
-  if (user.openfort_wallet_id) {
-    const account = await openfort().accounts.evm.backend.get({ id: user.openfort_wallet_id });
-    return { id: account.id, address: account.address, stub: false };
-  }
-
-  const account = await openfort().accounts.evm.backend.create({});
-  await setOpenfortWallet(user.id, account.id);   // persist acc_... on users.openfort_wallet_id
-  return { id: account.id, address: account.address, stub: false };
-}
+const account = await openfort().accounts.evm.backend.create({});
+await setOpenfortWallet(user.id, account.id, account.address);
 ```
 
-One Openfort **EVM backend wallet** (Developer-custody) is created per user, lazily on first payment, and its id is persisted on `users.openfort_wallet_id` (`apps/web/db/schema.sql`).
+Persisted as `users.openfort_wallet_id` + `users.openfort_wallet_address`. Provisioned on `/api/user/init`, `/api/user/agent`, and before MCP tool use.
+
+Requires `OPENFORT_SECRET_KEY` (+ recommended `OPENFORT_WALLET_SECRET`, `OPENFORT_POLICY_ID` for gas sponsorship). **No fake stub hashes** — missing keys fail closed.
 
 ### Paying (gasless, EIP-7702 delegated)
 
 ```ts
-const account = await openfort().accounts.evm.backend.get({ id: wallet.id });
-const data = encodeFunctionData({ abi: ERC20_TRANSFER_ABI, functionName: "transfer", args: [to, amountBaseUnits] });
+const transferData = encodeFunctionData({ /* transfer(to, amount) */ });
+const data = concatHex([transferData, toHex(`x402:${reference}`)]);
 
-const result = await openfort().accounts.evm.backend.sendTransaction({
+await openfort().accounts.evm.backend.sendTransaction({
   account,
   chainId: ARBITRUM_CHAIN_ID,
-  interactions: [{ to: usdcAddress(), data }],
+  interactions: [{ to: tokenAddress, data }],
+  policy: OPENFORT_POLICY_ID, // gas sponsorship (ply_...)
+  rpcUrl: arbitrumRpcUrl(),
 });
-const txHash = result.response?.transactionHash;
+// wait for receipt before returning hash
 ```
 
-`sendTransaction` internally: ensures the wallet has a delegated-account record → checks on-chain EIP-7702 delegation via `eth_getCode` → signs the authorization if needed → creates and submits the transaction intent. No gas token is needed in the user's own wallet — this is the "invisible gas" part of the demo.
+### Spending policy
 
-### x402 payer + spending policy
+Dashboard **Agent wallet & policy** panel → `POST /api/user/enable-server-signing`.
 
-```ts
-export function openfortPayer(user: DBUser): Payer {
-  return async (quote: Quote) => {
-    if (user.max_per_call != null && parseFloat(quote.price) > parseFloat(user.max_per_call)) {
-      throw new Error(`Payment of ${quote.price} USDC exceeds your per-call spending policy of ${user.max_per_call} USDC.`);
-    }
-    const result = await payWithAgentWallet({ user, to: quote.receiver, amountUsdc: quote.price, reference: quote.reference });
-    return result.txHash;
-  };
-}
-```
+`openfortPayer` enforces:
 
-`openfortPayer(user)` implements the `Payer` type from `@x402/client` (`(quote) => Promise<txHash>`), so it drops straight into `createUsdcClient({ payer })` alongside the existing shared-wallet payer. This is where the spec's "optional spending policy / kill switch" is enforced — `users.max_per_call` (set via `POST /api/user/enable-server-signing`) is checked before every signature.
+- `server_signing_enabled` must be true
+- `max_per_call`
+- `max_per_day` (via `getSpentToday`)
 
-### The 402 → pay → retry flow, end to end
+### 402 → pay → retry
 
 ```
-1. Agent calls x402_call_api(apiId, body)          [apps/web/app/api/mcp/route.ts]
-2. Axon POSTs to the target API's endpoint_url
-3. API responds 402 with a PaymentQuote (price, receiver, reference, tokenAddress)
-4. createUsdcClient's UsdcClient.fetch() catches the 402, calls payer(quote):
-     - authenticated  → openfortPayer(user)   → Openfort agent wallet, Arbitrum
-     - unauthenticated → serverWalletPayer(...) → shared PAYER_PRIVATE_KEY wallet
-5. Retries the request with x-payment-tx / x-payment-reference headers
-6. Target API's usdcPaywall middleware (packages/sdk) verifies the on-chain
-   Transfer log + calldata reference, then serves the real response
-7. Axon inserts an api_calls row directly (apps/web/lib/queries/api-calls.ts)
+1. MCP x402_call_api (Particle Bearer required)
+2. POST target endpoint_url → 402 quote
+3. openfortPayer(user) pays from that user's agent wallet
+4. Retry with x-payment-tx / x-payment-reference
+5. usdcPaywall verifies on-chain Transfer + x402:<reference> in calldata
+6. Insert api_calls row; return tool response + tx hash
 ```
 
-### Stub mode
-
-Without `OPENFORT_SECRET_KEY`, `getOrCreateAgentWallet` persists a `stub_acc_<userId>` id and `payWithAgentWallet` returns a deterministic fake tx hash instead of calling Openfort — the timeline, spend caps, and MCP flow all work identically, just without a real on-chain settlement. Flip the env var and the exact same code path goes live.
+There is **no** shared admin `PAYER_PRIVATE_KEY` path for MCP.
 
 ---
 
 ## 6. ZeroDev Smart Routing Address (planned, not implemented)
 
-Out of scope for the hackathon build (per the doc-only decision — this section is a concrete integration sketch, not shipped code).
+Doc-only sketch for a future deposit UX.
 
-**Goal:** one universal deposit address per user that routes funds from *any* chain into their Axon Universal Account / Arbitrum balance, so funding "Agent balance" doesn't require the user to already be on Arbitrum.
+**Goal:** one deposit address per user that routes any-chain funds into the UA / Arbitrum balance.
 
 **Sketch:**
-1. On first login, call ZeroDev's SRA API to generate a Smart Routing Address for the user's Magic wallet address, store it as `users.sra_address` (new column, same pattern as `ua_address`/`openfort_wallet_id`).
-2. Add a "Deposit address" card next to the "Agent balance" card in `apps/web/components/topbar.tsx` / the dashboard, showing the SRA and instructions ("send USDC on any supported chain here").
-3. ZeroDev relays/aggregates the deposit and delivers funds to the UA/Arbitrum balance; Axon's existing `useUniversalAccount` polling (`apps/web/hooks/use-universal-account.ts`) picks up the new balance with no additional client-side work.
-4. Bind a `POST /api/webhooks/zerodev` endpoint (new) to receive deposit-confirmation callbacks and write a timeline entry, mirroring how `POST /api/ua/simulate-deposit` already models a cross-chain deposit event (§2).
+1. On first login, create an SRA for the Particle Auth EOA; store `users.sra_address`.
+2. Show a "Deposit address" card next to Agent balance.
+3. ZeroDev delivers funds; `useUniversalAccount` polling picks up the new balance.
+4. Optional `POST /api/webhooks/zerodev` for timeline entries (same shape as simulate-deposit).
 
 ---
 
-## 7. MCP + Claude integration
+## 7. MCP + Claude / Cursor integration
 
 **File:** `apps/web/app/api/mcp/route.ts`
 
-The MCP server is a stateless streamable-HTTP transport (`@modelcontextprotocol/sdk`), unchanged in shape from the previous Plugix implementation — Claude still calls exactly two tools:
+Tools:
 
-- `x402_list_apis` — no params, returns the marketplace listing.
-- `x402_call_api({ apiId, body })` — calls the API, handles 402→pay→retry, returns the response.
+- `x402_list_apis` — marketplace listing from Postgres
+- `x402_call_api({ apiId, body })` — 402 → Openfort pay → retry
 
-**What changed:**
+### Auth (required)
 
 ```ts
 async function handler(req: NextRequest): Promise<Response> {
-  const auth = await getOptionalAuthUser(req);   // NEW — optional Magic auth
-  const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  const server = buildServer(auth);
-  await server.connect(transport);
-  return transport.handleRequest(req);
+  const auth = await getAuthUser(req); // Particle Bearer required
+  if (auth instanceof Response) {
+    return Response.json({ error: "Unauthorized", hint: "..." }, { status: 401 });
+  }
+  await getOrCreateAgentWallet(auth.dbUser);
+  // ... streamable HTTP MCP transport
 }
 ```
 
-`/api/mcp` now **optionally** accepts `Authorization: Bearer <magic-did-token>`:
+Bearer format: **`Authorization: Bearer <particleUuid>:<particleToken>`**
 
-- **No token** (old behavior, unchanged): pays via the shared `PAYER_PRIVATE_KEY` wallet, no per-user attribution. The MCP contract Claude already speaks is untouched.
-- **With a token**: `x402_call_api` pays via `openfortPayer(auth.dbUser)` (§5), enforcing that user's spending policy, and writes the `api_calls` row **directly** inside the route handler's `finally` block — the old separate `POST /api/mcp/callback` endpoint (shared-secret auth, mismatched contract with the legacy stdio MCP package) has been deleted entirely; recording now happens exactly where the payment result is already known.
+Get it from `/mcp/login` after Particle Auth sign-in; paste into MCP host config:
 
-Users get a token by visiting `/mcp/login` (`apps/web/app/mcp/login/page.tsx`), which calls `useAuth().getIdToken()` client-side and displays it to paste into `claude_desktop_config.json`'s `headers.Authorization` field — no separate token-minting endpoint (the old `/api/mcp/token`, which had been returning `410 Gone`) is needed, since the Magic DID token itself is the bearer credential.
+```json
+{
+  "mcpServers": {
+    "axon": {
+      "url": "http://localhost:3000/api/mcp",
+      "headers": {
+        "Authorization": "Bearer <uuid:token>"
+      }
+    }
+  }
+}
+```
 
-**Also removed as dead code:** `packages/mcp` (a second, incompatible stdio MCP server implementation whose `x402_login` flow depended on the dead `/api/mcp/token` route) and `apps/web/lib/payments.ts` (an unused, mid-debug Privy-signing payment path that nothing called).
-
-See `apps/web/app/docs/mcp/page.tsx` for the user-facing version of this same flow.
+See `apps/web/app/docs/mcp/page.tsx` for the user-facing docs.
 
 ---
 
 ## 8. Setup and .env instructions
 
-Copy `apps/web/.env.example` → `apps/web/.env.local` and fill in:
+### Where each file goes
+
+| File | Who loads it | Put what here |
+|---|---|---|
+| **`<repo>/.env`** | `dev:web` + `dev:api` (dotenv-cli) | Canonical shared env; **required for `apps/api`** |
+| **`apps/web/.env.local`** | Next.js | Particle `NEXT_PUBLIC_*`, `PARTICLE_SERVER_KEY`, Openfort, `DATABASE_URL` |
+| **`<repo>/.env.local`** | Avoid empty overrides | If present, keep Particle `NEXT_PUBLIC_*` filled (empty values override `.env`) |
+| **`apps/api/.env.example`** | docs only | Runtime reads root `.env` |
+| **`packages/*`** | nothing | Pass config as function args |
+
+```bash
+cp .env.example .env
+cp apps/web/.env.example apps/web/.env.local
+# fill Particle + Openfort + RECEIVER_ADDRESS
+```
+
+### Variable reference
 
 | Variable | Required | Notes |
 |---|---|---|
-| `NEXT_PUBLIC_MAGIC_PUBLISHABLE_KEY` | **yes** | [dashboard.magic.link](https://dashboard.magic.link) → API Keys |
-| `MAGIC_SECRET_KEY` | **yes** | Same page, server secret |
-| `DATABASE_URL` | **yes** | `postgresql://plugix:plugix@localhost:5433/plugix` for local Docker |
-| `ARBITRUM_RPC_URL` | no (defaults to public Arbitrum Sepolia RPC) | |
-| `NEXT_PUBLIC_ARBITRUM_RPC_URL` | no | client-side copy, used to pin the Magic wallet's network |
-| `ARBITRUM_USDC_ADDRESS` | no (defaults to Arbitrum Sepolia native USDC) | |
-| `PAYER_PRIVATE_KEY` | recommended | shared fallback wallet for unauthenticated `/api/mcp` calls; needs Arbitrum Sepolia ETH + USDC |
-| `NEXT_PUBLIC_PARTICLE_PROJECT_ID` / `NEXT_PUBLIC_PARTICLE_CLIENT_KEY` / `NEXT_PUBLIC_PARTICLE_APP_ID` | no | [dashboard.particle.network](https://dashboard.particle.network) — omit for demo-mode balances |
-| `OPENFORT_SECRET_KEY` | no | [dashboard.openfort.io](https://dashboard.openfort.io) — omit for simulated agent-wallet payments |
+| `NEXT_PUBLIC_PARTICLE_PROJECT_ID` | **yes** | [dashboard.particle.network](https://dashboard.particle.network) Project ID |
+| `NEXT_PUBLIC_PARTICLE_CLIENT_KEY` | **yes** | Client Key |
+| `NEXT_PUBLIC_PARTICLE_APP_ID` | **yes** | Web app App ID (create a **Web** app; set redirect `http://localhost:3000`) |
+| `PARTICLE_PROJECT_ID` / `CLIENT_KEY` / `APP_ID` | **yes** | Same values (server mirror) |
+| `PARTICLE_SERVER_KEY` | **yes** | Server Key — `getUserInfo` Basic auth |
+| `DATABASE_URL` | **yes** | `postgresql://plugix:plugix@localhost:5433/plugix` |
+| `OPENFORT_SECRET_KEY` | **yes for MCP pay** | [dashboard.openfort.io](https://dashboard.openfort.io) Backend wallets |
+| `OPENFORT_WALLET_SECRET` | recommended | Backend wallet secret (PEM private key) |
+| `OPENFORT_POLICY_ID` | recommended | Gas sponsorship policy id (`ply_...`) |
+| `ARBITRUM_RPC_URL` / `NEXT_PUBLIC_ARBITRUM_RPC_URL` | no | defaults to public Sepolia RPC |
+| `ARBITRUM_USDC_ADDRESS` | no | Sepolia native USDC default |
+| `RECEIVER_ADDRESS` | **yes for api** | USDC receiver for x402 paywall |
+| `TOKEN_ADDRESS` | no | same USDC for `apps/api` |
+| `PORT` | no | default `4000` |
+| `NEXT_PUBLIC_API_BASE_URL` | for `/demo` | e.g. `http://localhost:4000` |
+| `AZURE_SORA_ENDPOINT` / `AZURE_API_KEY` | for real media | image/video routes |
+
+**Removed (do not set):** `MAGIC_*`, `PRIVY_*`, `MONAD_*`, `PAYER_PRIVATE_KEY`, `MCP_CALLBACK_SECRET`.
 
 ### Run locally
 
 ```bash
 npm install
-cp apps/web/.env.example apps/web/.env.local   # fill in the table above
-docker compose up -d                            # Postgres on :5433, applies apps/web/db/schema.sql
-npm run dev:web                                 # http://localhost:3000
+cp .env.example .env
+cp apps/web/.env.example apps/web/.env.local   # fill Particle + Openfort
+docker compose down -v && docker compose up -d # fresh schema (particle_user_id)
+npm run dev                                    # web :3000 + api :4000
 ```
 
 ### Demo script
 
-1. Visit `/` → "Sign in" → Google login via Magic.
-2. Land on `/dashboard` — "Agent balance" card renders (demo figures if Particle keys are unset).
-3. Demo a cross-chain deposit into the UA balance (requires a Magic Bearer token from step 4, or sign in first and grab it from `/mcp/login`):
-
-   ```bash
-   curl -X POST http://localhost:3000/api/ua/simulate-deposit \
-     -H "Authorization: Bearer <magic-did-token>" \
-     -H "Content-Type: application/json" \
-     -d '{"amountUsd": 25}'
-   ```
-
-   Returns `{ amountUsd, fromChain, toChain, sourceTxHash, settledAt }` — a simulated Base/Ethereum/Solana → Arbitrum value move. Client-side, `simulateDeposit()` in `apps/web/lib/particle-ua.ts` can bump the displayed balance for the same demo without a page reload.
-4. Visit `/mcp/login`, copy the Magic DID token into Claude's MCP config (`apps/web/app/docs/mcp/page.tsx` has the exact JSON).
-5. From Claude, call `x402_list_apis` then `x402_call_api` — watch a new row appear in the dashboard's execution timeline with a real (or simulated, in stub mode) Arbitrum tx hash.
+1. Visit `/` → Sign in with Particle Auth (email / Google / …).
+2. `/dashboard` → enable spending policy; copy Openfort agent address; fund with Sepolia USDC (or UA → agent).
+3. Publish `http://localhost:4000/api/generate-image` on `/publish`.
+4. `/mcp/login` → copy MCP config with Particle Bearer into Claude/Cursor; restart host.
+5. `x402_list_apis` → `x402_call_api` → execution timeline shows the agent wallet's Arbitrum tx.
 
 ### Local schema reset
 
-Since the `users` table schema changed (`privy_user_id` → `magic_issuer`, new `email`/`ua_address`/`openfort_wallet_id` columns, dropped `signer_id`), existing local Docker volumes need a reset:
+`users.particle_user_id` replaced `magic_issuer` / `privy_user_id`. Reset Docker volumes after schema changes:
 
 ```bash
+docker rm -f plugix-db   # if name conflict
 docker compose down -v
 docker compose up -d
 ```

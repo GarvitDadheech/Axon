@@ -2,22 +2,31 @@
  * Openfort backend (agent) wallets — the server-side "spend engine" that
  * pays for x402 tool calls on a user's behalf, without a wallet popup.
  *
- * One Openfort EVM backend wallet is provisioned per Axon user (id persisted
- * as `users.openfort_wallet_id`) and used to sign+submit gasless, EIP-7702
- * delegated USDC transfers on Arbitrum via `accounts.evm.backend.sendTransaction`.
+ * Flow:
+ * 1. Provision one EVM backend wallet per Axon user (openfort_wallet_id + address)
+ * 2. User funds that address (Particle Auth transfer on Sepolia, or Particle UA → agent)
+ * 3. User enables spending policy (max_per_call / max_per_day)
+ * 4. MCP calls openfortPayer → USDC transfer with x402:<reference> in calldata
  *
- * Stub mode: when OPENFORT_SECRET_KEY isn't configured, wallet creation and
- * payments are simulated (deterministic fake id/address, fake tx hash) so
- * the rest of the app — timeline, spend caps, MCP flow — works end to end
- * without a live Openfort project.
+ * Requires OPENFORT_SECRET_KEY (+ optional OPENFORT_WALLET_SECRET, OPENFORT_POLICY_ID).
+ * No fake tx hashes — payments fail closed when Openfort is not configured.
  */
 
 import { Openfort } from "@openfort/openfort-node";
-import { encodeFunctionData, parseAbi } from "viem";
+import {
+  concatHex,
+  createPublicClient,
+  encodeFunctionData,
+  http,
+  parseAbi,
+  toHex,
+  type Hex,
+} from "viem";
 import type { Payer, Quote } from "@x402/client";
 import { env, openfortConfigured } from "@/lib/env";
-import { ARBITRUM_CHAIN_ID, usdcAddress, USDC_DECIMALS } from "@/lib/arbitrum";
+import { ARBITRUM_CHAIN_ID, arbitrumRpcUrl, USDC_DECIMALS } from "@/lib/arbitrum";
 import { setOpenfortWallet, type DBUser } from "@/lib/queries/users";
+import { getSpentToday } from "@/lib/queries/api-calls";
 
 const ERC20_TRANSFER_ABI = parseAbi([
   "function transfer(address to, uint256 value) returns (bool)",
@@ -27,38 +36,41 @@ let _openfort: Openfort | null = null;
 
 function openfort(): Openfort {
   if (_openfort) return _openfort;
-  _openfort = new Openfort(env().OPENFORT_SECRET_KEY);
+  const e = env();
+  _openfort = new Openfort(e.OPENFORT_SECRET_KEY, {
+    ...(e.OPENFORT_WALLET_SECRET ? { walletSecret: e.OPENFORT_WALLET_SECRET } : {}),
+  });
   return _openfort;
 }
 
 export interface AgentWallet {
-  /** Openfort account id (acc_...), or a `stub_` id in demo mode. */
   id: string;
-  address: string;
-  stub: boolean;
+  address: `0x${string}`;
 }
 
 /** Get the user's Openfort agent wallet, provisioning one on first use. */
 export async function getOrCreateAgentWallet(user: DBUser): Promise<AgentWallet> {
   if (!openfortConfigured()) {
-    const id = user.openfort_wallet_id ?? `stub_acc_${user.id}`;
-    if (!user.openfort_wallet_id) await setOpenfortWallet(user.id, id);
-    return { id, address: user.wallet_address, stub: true };
+    throw new Error(
+      "OPENFORT_SECRET_KEY is not configured. Agent wallets require a live Openfort project — see https://dashboard.openfort.io"
+    );
   }
 
   if (user.openfort_wallet_id && !user.openfort_wallet_id.startsWith("stub_")) {
     const account = await openfort().accounts.evm.backend.get({ id: user.openfort_wallet_id });
-    return { id: account.id, address: account.address, stub: false };
+    if (user.openfort_wallet_address !== account.address) {
+      await setOpenfortWallet(user.id, account.id, account.address);
+    }
+    return { id: account.id, address: account.address as `0x${string}` };
   }
 
   const account = await openfort().accounts.evm.backend.create({});
-  await setOpenfortWallet(user.id, account.id);
-  return { id: account.id, address: account.address, stub: false };
+  await setOpenfortWallet(user.id, account.id, account.address);
+  return { id: account.id, address: account.address as `0x${string}` };
 }
 
 export interface AgentPaymentResult {
   txHash: string;
-  stub: boolean;
 }
 
 /** Pay `amountUsdc` USDC to `to` from the user's Openfort agent wallet on Arbitrum. */
@@ -67,47 +79,72 @@ export async function payWithAgentWallet(params: {
   to: `0x${string}`;
   amountUsdc: string;
   reference: string;
+  tokenAddress: `0x${string}`;
 }): Promise<AgentPaymentResult> {
   const wallet = await getOrCreateAgentWallet(params.user);
-
-  if (wallet.stub) {
-    const seed = Buffer.from(`${params.reference}:${params.amountUsdc}`).toString("hex");
-    return { txHash: `0x${seed.padEnd(64, "0").slice(0, 64)}`, stub: true };
-  }
-
   const account = await openfort().accounts.evm.backend.get({ id: wallet.id });
+
   const amountBaseUnits = BigInt(Math.round(parseFloat(params.amountUsdc) * 10 ** USDC_DECIMALS));
-  const data = encodeFunctionData({
+  const transferData = encodeFunctionData({
     abi: ERC20_TRANSFER_ABI,
     functionName: "transfer",
     args: [params.to, amountBaseUnits],
   });
+  // Bind payment to the x402 quote — packages/sdk verifyPayment requires this.
+  const referenceHex = toHex(`x402:${params.reference}`);
+  const data = concatHex([transferData, referenceHex]);
 
+  const policy = env().OPENFORT_POLICY_ID || undefined;
   const result = await openfort().accounts.evm.backend.sendTransaction({
     account,
     chainId: ARBITRUM_CHAIN_ID,
-    interactions: [{ to: usdcAddress(), data }],
+    interactions: [{ to: params.tokenAddress, data }],
+    ...(policy ? { policy } : {}),
+    rpcUrl: arbitrumRpcUrl(),
   });
 
-  const txHash = result.response?.transactionHash;
-  if (!txHash) throw new Error("Openfort sendTransaction did not return a transaction hash");
-  return { txHash, stub: false };
+  const txHash = result.response?.transactionHash as Hex | undefined;
+  if (!txHash) {
+    throw new Error("Openfort sendTransaction did not return a transaction hash");
+  }
+
+  const publicClient = createPublicClient({ transport: http(arbitrumRpcUrl()) });
+  await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+  return { txHash };
 }
 
-/** x402 Payer backed by the user's Openfort agent wallet, enforcing their
- *  per-call spending policy (`users.max_per_call`) before signing. */
+/** x402 Payer backed by the user's Openfort agent wallet + spending policy. */
 export function openfortPayer(user: DBUser): Payer {
   return async (quote: Quote) => {
-    if (user.max_per_call != null && parseFloat(quote.price) > parseFloat(user.max_per_call)) {
+    if (!user.server_signing_enabled) {
+      throw new Error(
+        "Agent spending is disabled. Enable a spending policy on the Axon dashboard first."
+      );
+    }
+
+    const price = parseFloat(quote.price);
+    if (user.max_per_call != null && price > parseFloat(user.max_per_call)) {
       throw new Error(
         `Payment of ${quote.price} USDC exceeds your per-call spending policy of ${user.max_per_call} USDC.`
       );
     }
+
+    if (user.max_per_day != null) {
+      const spentToday = await getSpentToday(user.id);
+      if (spentToday + price > parseFloat(user.max_per_day)) {
+        throw new Error(
+          `Payment of ${quote.price} USDC would exceed your daily spending policy of ${user.max_per_day} USDC (already spent ${spentToday.toFixed(4)} today).`
+        );
+      }
+    }
+
     const result = await payWithAgentWallet({
       user,
       to: quote.receiver as `0x${string}`,
       amountUsdc: quote.price,
       reference: quote.reference,
+      tokenAddress: quote.tokenAddress as `0x${string}`,
     });
     return result.txHash;
   };

@@ -15,21 +15,15 @@ export const metadata: Metadata = {
 const CONFIG_SNIPPET = `{
   "mcpServers": {
     "axon": {
-      "url": "https://your-app.vercel.app/api/mcp"
-    }
-  }
-}`;
-
-const CONFIG_SNIPPET_AUTHED = `{
-  "mcpServers": {
-    "axon": {
       "url": "https://your-app.vercel.app/api/mcp",
       "headers": {
-        "Authorization": "Bearer <magic-did-token-from-/mcp/login>"
+        "Authorization": "Bearer <particle-uuid:token-from-/mcp/login>"
       }
     }
   }
 }`;
+
+const CONFIG_SNIPPET_AUTHED = CONFIG_SNIPPET;
 
 const RUN_SNIPPET = `# Restart your MCP host, then prompt your agent:
 
@@ -63,10 +57,10 @@ const FLOW_SNIPPET = `1. Agent calls x402_call_api("your endpoint", body)
    ← HTTP 402  www-authenticate: x402 token=..., price="0.01"
                body: { reference, receiver, price, expiresAt, ... }
 
-3. Axon pays the quote in USDC on Arbitrum:
-   - authenticated call → signed by the caller's Openfort agent wallet
-   - unauthenticated call → signed by the shared platform wallet
+3. Axon pays the quote in USDC on Arbitrum from **your Openfort agent wallet**
+   (Particle Bearer token required — no shared admin payer):
    data: transfer(receiver, amount) + "x402:<reference>" appended to calldata
+
 
 4. Axon retries:
    POST /api/endpoint
@@ -161,7 +155,7 @@ export default function McpDocsPage() {
         <p className="text-[13px] text-white/35 border-l border-white/[0.08] pl-4">
           <span className="text-white/50">Per-user spend:</span> sign in at{" "}
           <code className="font-mono text-[12px] text-emerald-400/70">/mcp/login</code>{" "}
-          to get a Magic DID token. Pass it as a Bearer token so calls are
+          to get a Particle Auth token (`uuid:token`). Pass it as a Bearer token so calls are
           paid from your own Openfort agent wallet and respect your spending
           policy, instead of the shared platform wallet.
         </p>

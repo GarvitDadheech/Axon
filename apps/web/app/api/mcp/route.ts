@@ -3,18 +3,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { createUsdcClient } from "@x402/client";
-import { serverWalletPayer } from "@x402/client/server";
 import { listPublicApis, findApiById } from "@/lib/queries/apis";
 import { insertApiCall } from "@/lib/queries/api-calls";
-import { getOptionalAuthUser, type AuthUserWithDb } from "@/lib/auth";
-import { openfortPayer } from "@/lib/openfort";
-import { arbitrumRpcUrl } from "@/lib/arbitrum";
-import { env } from "@/lib/env";
+import { getAuthUser, type AuthUserWithDb } from "@/lib/auth";
+import { getOrCreateAgentWallet, openfortPayer } from "@/lib/openfort";
 
 // Allow up to 60 seconds — blockchain tx confirmation takes time
 export const maxDuration = 60;
 
-function buildServer(auth: AuthUserWithDb | null): McpServer {
+function buildServer(auth: AuthUserWithDb): McpServer {
   const server = new McpServer({ name: "axon-marketplace", version: "0.1.0" });
 
   server.tool(
@@ -41,7 +38,7 @@ function buildServer(auth: AuthUserWithDb | null): McpServer {
 
   server.tool(
     "x402_call_api",
-    "Call a pay-per-use API by its marketplace ID. Automatically handles the HTTP 402 payment flow: issues USDC on Arbitrum and retries with proof. Every successful response includes x402Tnx: { tnxHash, amount, token } — always show the user: '💳 Paid [amount] [token] — tx: [tnxHash]'.",
+    "Call a pay-per-use API by its marketplace ID. Automatically handles the HTTP 402 payment flow: pays USDC from YOUR Openfort agent wallet on Arbitrum and retries with proof. Every successful response includes x402Tnx: { tnxHash, amount, token } — always show the user: '💳 Paid [amount] [token] — tx: [tnxHash]'.",
     {
       apiId: z.number().describe("The numeric API id from x402_list_apis"),
       body: z.string().describe("Request body as a JSON string, matching the API's sample_request schema"),
@@ -50,14 +47,8 @@ function buildServer(auth: AuthUserWithDb | null): McpServer {
       const api = await findApiById(apiId);
       if (!api) throw new Error(`No API with id ${apiId} found in the marketplace.`);
 
-      // Attribute the payment (and its spending policy) to the caller's own
-      // Openfort agent wallet when a Magic session is present; otherwise fall
-      // back to the shared platform wallet — keeps the MCP contract working
-      // for unauthenticated clients.
-      const payer = auth
-        ? openfortPayer(auth.dbUser)
-        : serverWalletPayer({ privateKey: env().PAYER_PRIVATE_KEY, rpcUrl: arbitrumRpcUrl() });
-
+      // Always the caller's Openfort agent wallet — never a shared admin key.
+      const payer = openfortPayer(auth.dbUser);
       const client = createUsdcClient({ payer });
 
       let status: "success" | "failed" = "success";
@@ -86,23 +77,21 @@ function buildServer(auth: AuthUserWithDb | null): McpServer {
         status = "failed";
         throw err;
       } finally {
-        if (auth) {
-          await insertApiCall({
-            userId: auth.dbUserId,
-            apiId: api.id,
-            txHash,
-            amountSpent: status === "success" ? api.price_per_call : "0",
-            platformFee: "0",
-            status,
-            requestPayload: (() => {
-              try {
-                return JSON.parse(body);
-              } catch {
-                return undefined;
-              }
-            })(),
-          }).catch((e) => console.error("[axon] failed to record MCP api_call:", e));
-        }
+        await insertApiCall({
+          userId: auth.dbUserId,
+          apiId: api.id,
+          txHash,
+          amountSpent: status === "success" ? api.price_per_call : "0",
+          platformFee: "0",
+          status,
+          requestPayload: (() => {
+            try {
+              return JSON.parse(body);
+            } catch {
+              return undefined;
+            }
+          })(),
+        }).catch((e) => console.error("[axon] failed to record MCP api_call:", e));
       }
     }
   );
@@ -110,9 +99,30 @@ function buildServer(auth: AuthUserWithDb | null): McpServer {
   return server;
 }
 
-// Each request gets a fresh stateless transport — correct for serverless deployments
+/**
+ * MCP requires Particle Auth. Put `uuid:token` from /mcp/login into the MCP host
+ * config as: Authorization: Bearer <uuid>:<token>
+ */
 async function handler(req: NextRequest): Promise<Response> {
-  const auth = await getOptionalAuthUser(req);
+  const auth = await getAuthUser(req);
+  if (auth instanceof Response) {
+    return Response.json(
+      {
+        error: "Unauthorized",
+        hint: "Visit /mcp/login, copy your Particle Bearer token (uuid:token), and set headers.Authorization in your MCP host config.",
+      },
+      { status: 401 }
+    );
+  }
+
+  // Ensure the agent wallet exists before any tool call.
+  try {
+    await getOrCreateAgentWallet(auth.dbUser);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return Response.json({ error: message }, { status: 503 });
+  }
+
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
   });
