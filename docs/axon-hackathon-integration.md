@@ -358,7 +358,7 @@ cp apps/web/.env.example apps/web/.env.local
 | `PARTICLE_SERVER_KEY` | **yes** | Server Key — `getUserInfo` Basic auth |
 | `DATABASE_URL` | **yes** | `postgresql://plugix:plugix@localhost:5433/plugix` |
 | `OPENFORT_SECRET_KEY` | **yes for MCP pay** | [dashboard.openfort.io](https://dashboard.openfort.io) Backend wallets |
-| `OPENFORT_WALLET_SECRET` | recommended | Backend wallet secret (PEM private key) |
+| `OPENFORT_WALLET_SECRET` | recommended | Backend wallet secret (base64 DER EC P-256 — not PEM) |
 | `OPENFORT_POLICY_ID` | recommended | Gas sponsorship policy id (`ply_...`) |
 | `ARBITRUM_RPC_URL` / `NEXT_PUBLIC_ARBITRUM_RPC_URL` | no | defaults to public Sepolia RPC |
 | `ARBITRUM_USDC_ADDRESS` | no | Sepolia native USDC default |

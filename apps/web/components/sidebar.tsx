@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, PlusCircle, Store, BookOpen } from "lucide-react";
+import { LayoutDashboard, PlusCircle, Store, Cable } from "lucide-react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
@@ -10,7 +10,7 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/publish", label: "Publish API", icon: PlusCircle },
   { href: "/marketplace", label: "Marketplace", icon: Store },
-  { href: "/docs/mcp", label: "MCP Docs", icon: BookOpen },
+  { href: "/mcp", label: "MCP Integration", icon: Cable },
 ];
 
 export function Sidebar() {

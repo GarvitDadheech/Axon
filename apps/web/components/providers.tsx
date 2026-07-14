@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -16,13 +17,20 @@ import {
   useEthereum,
 } from "@particle-network/authkit";
 import { arbitrumSepolia } from "@particle-network/authkit/chains";
+import { Buffer } from "buffer";
 import {
   encodeParticleBearer,
   particleAuthConfigured,
   particleAuthOptions,
+  peekParticleOAuthCallback,
 } from "@/lib/particle-auth";
 
-// Avoid importing @particle-network/auth-core directly (pulls AWS Node SDK).
+// Particle Auth expects Buffer in the browser (see official web SDK docs).
+if (typeof window !== "undefined") {
+  (window as unknown as { Buffer: typeof Buffer }).Buffer = Buffer;
+}
+
+// Avoid importing @particle-network/auth-core entry (pulls AWS Node SDK).
 const AUTH_TYPES = ["email", "google", "apple", "twitter"] as const;
 
 export interface AuthUser {
@@ -52,26 +60,73 @@ export function useAuth(): AuthContextValue {
 }
 
 function ParticleAuthBridge({ children }: { children: ReactNode }) {
-  const { connect, disconnect, connected, connectionStatus } = useConnect();
+  const { connect, disconnect, connected, connectionStatus, setSocialConnectCallback } =
+    useConnect();
   const { userInfo } = useAuthCore();
-  const { provider, address, switchChain } = useEthereum();
+  const { provider, address, switchChain, enable } = useEthereum();
   const [ready, setReady] = useState(false);
+  const oauthFallbackStarted = useRef(false);
 
   useEffect(() => {
-    // AuthKit finishes hydrating once connectionStatus leaves "loading"
-    if (connectionStatus !== "loading") setReady(true);
+    setSocialConnectCallback({
+      onError: (err) => {
+        console.error("[axon] Particle social connect failed:", err);
+      },
+    });
+    return () => setSocialConnectCallback(undefined);
+  }, [setSocialConnectCallback]);
+
+  // AuthKit Index normally finishes Google OAuth. If params remain after 2s
+  // (Index didn't mount), fall back once — without racing Index on first paint.
+  useEffect(() => {
+    if (typeof window === "undefined" || oauthFallbackStarted.current) return;
+    if (!window.location.search.includes("particleThirdpartyParams")) return;
+
+    const timer = window.setTimeout(() => {
+      if (oauthFallbackStarted.current || connected) return;
+      const cb = peekParticleOAuthCallback();
+      if (!cb) return;
+      oauthFallbackStarted.current = true;
+      void connect({
+        socialType: cb.socialType,
+        code: cb.code,
+        nonce: cb.nonce,
+      }).catch((err) => {
+        console.error("[axon] Particle OAuth fallback failed:", err);
+      });
+    }, 2000);
+
+    return () => window.clearTimeout(timer);
+  }, [connect, connected]);
+
+  useEffect(() => {
+    const oauthReturning =
+      typeof window !== "undefined" &&
+      window.location.search.includes("particleThirdpartyParams");
+
+    if (
+      oauthReturning ||
+      connectionStatus === "loading" ||
+      connectionStatus === "connecting"
+    ) {
+      setReady(false);
+      return;
+    }
+    setReady(true);
   }, [connectionStatus]);
 
-  // Prefer Arbitrum Sepolia for settlement transfers once connected
   useEffect(() => {
     if (!connected || !address) return;
-    switchChain?.(arbitrumSepolia.id).catch(() => {
-      /* chain may already be set */
-    });
+    switchChain?.(arbitrumSepolia.id).catch(() => {});
   }, [connected, address, switchChain]);
 
+  useEffect(() => {
+    if (!connected || address) return;
+    void enable().catch(() => {});
+  }, [connected, address, enable]);
+
   const user = useMemo<AuthUser | null>(() => {
-    if (!connected || !userInfo) return null;
+    if (!userInfo?.uuid) return null;
     const wallet =
       (address as `0x${string}` | undefined) ??
       (userInfo.wallets?.find((w) => w.chain_name === "evm_chain")
@@ -85,9 +140,9 @@ function ParticleAuthBridge({ children }: { children: ReactNode }) {
     return {
       email,
       wallet: wallet ?? null,
-      particleUserId: userInfo.uuid ?? null,
+      particleUserId: userInfo.uuid,
     };
-  }, [connected, userInfo, address]);
+  }, [userInfo, address]);
 
   const login = useCallback(() => {
     void connect({}).catch((err) => {
@@ -106,17 +161,19 @@ function ParticleAuthBridge({ children }: { children: ReactNode }) {
     return encodeParticleBearer(userInfo.uuid, userInfo.token);
   }, [userInfo]);
 
+  const authenticated = connected || !!user?.particleUserId;
+
   const value = useMemo<AuthContextValue>(
     () => ({
-      ready,
-      authenticated: !!user?.wallet,
+      ready: ready || authenticated,
+      authenticated,
       user,
       login,
       logout,
       getIdToken,
       ethereumProvider: provider ?? null,
     }),
-    [ready, user, login, logout, getIdToken, provider]
+    [ready, authenticated, user, login, logout, getIdToken, provider]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -146,6 +203,11 @@ export function Providers({ children }: { children: ReactNode }) {
         themeType: "dark",
         fiatCoin: "USD",
         language: "en",
+        // Don't block OAuth completion on password setup prompts
+        promptSettingConfig: {
+          promptMasterPasswordSettingWhenLogin: false,
+          promptPaymentPasswordSettingWhenSign: false,
+        },
         wallet: {
           visible: true,
           themeType: "dark",

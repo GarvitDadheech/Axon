@@ -2,15 +2,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/providers";
-import { Copy, Check, Loader2, Shield, Wallet } from "lucide-react";
+import {
+  Copy,
+  Check,
+  Loader2,
+  Shield,
+  Wallet,
+  ArrowRight,
+  Pencil,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { shortenAddress } from "@/lib/utils";
-import {
-  particleConfigured,
-  transferViaUniversalAccount,
-} from "@/lib/particle-ua";
 
 interface AgentInfo {
   agent: {
@@ -25,23 +29,38 @@ interface AgentInfo {
     maxPerDay: string | null;
     spentToday: string;
   };
-  magicWallet: string; // Particle Auth EOA (legacy field name in API response)
+  magicWallet: string;
 }
 
-export function AgentWalletPanel({ onFundSepolia }: { onFundSepolia?: (address: string) => void }) {
-  const { getIdToken, user, ethereumProvider } = useAuth();
+function formatUsdc(value: string | null | undefined, digits = 2): string {
+  if (value == null || value === "") return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  return n.toFixed(digits);
+}
+
+function normalizeUsdcInput(raw: string): string {
+  const cleaned = raw.replace(/[^0-9.]/g, "");
+  const n = parseFloat(cleaned);
+  if (!Number.isFinite(n) || n < 0) return "0.00";
+  return n.toFixed(2);
+}
+
+export function AgentWalletPanel({
+  onFundSepolia,
+}: {
+  onFundSepolia?: (address: string) => void;
+}) {
+  const { getIdToken } = useAuth();
   const [info, setInfo] = useState<AgentInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const [editingPolicy, setEditingPolicy] = useState(false);
   const [maxPerCall, setMaxPerCall] = useState("1.00");
   const [maxPerDay, setMaxPerDay] = useState("10.00");
   const [savingPolicy, setSavingPolicy] = useState(false);
-
-  const [fundAmount, setFundAmount] = useState("1");
-  const [funding, setFunding] = useState(false);
-  const [fundMsg, setFundMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,10 +71,13 @@ export function AgentWalletPanel({ onFundSepolia }: { onFundSepolia?: (address: 
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? json.hint ?? "Failed to load agent wallet");
+      if (!res.ok) {
+        throw new Error(json.error ?? json.hint ?? "Failed to load agent wallet");
+      }
       setInfo(json);
-      if (json.policy?.maxPerCall) setMaxPerCall(json.policy.maxPerCall);
-      if (json.policy?.maxPerDay) setMaxPerDay(json.policy.maxPerDay);
+      setMaxPerCall(formatUsdc(json.policy?.maxPerCall ?? "1", 2));
+      setMaxPerDay(formatUsdc(json.policy?.maxPerDay ?? "10", 2));
+      if (!json.policy?.enabled) setEditingPolicy(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setInfo(null);
@@ -75,7 +97,7 @@ export function AgentWalletPanel({ onFundSepolia }: { onFundSepolia?: (address: 
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const enablePolicy = async () => {
+  const savePolicy = async () => {
     setSavingPolicy(true);
     setError(null);
     try {
@@ -86,10 +108,14 @@ export function AgentWalletPanel({ onFundSepolia }: { onFundSepolia?: (address: 
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ maxPerCall, maxPerDay }),
+        body: JSON.stringify({
+          maxPerCall: normalizeUsdcInput(maxPerCall),
+          maxPerDay: normalizeUsdcInput(maxPerDay),
+        }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Failed to enable policy");
+      if (!res.ok) throw new Error(json.error ?? "Failed to save policy");
+      setEditingPolicy(false);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -98,32 +124,18 @@ export function AgentWalletPanel({ onFundSepolia }: { onFundSepolia?: (address: 
     }
   };
 
-  const fundFromUa = async () => {
-    if (!info?.agent.address || !user?.wallet) return;
-    setFunding(true);
-    setFundMsg(null);
-    setError(null);
-    try {
-      if (!particleConfigured()) {
-        throw new Error(
-          "Particle keys missing — use “Fund on Sepolia” to send testnet USDC to the agent address instead."
-        );
-      }
-      if (!ethereumProvider) throw new Error("Particle wallet provider not ready");
-      const result = await transferViaUniversalAccount({
-        ownerAddress: user.wallet,
-        receiver: info.agent.address,
-        amountUsdc: fundAmount,
-        provider: ethereumProvider as {
-          request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-        },
-      });
-      setFundMsg(`UA transfer submitted: ${result.explorerUrl}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setFunding(false);
-    }
+  const startEdit = () => {
+    if (!info) return;
+    setMaxPerCall(formatUsdc(info.policy.maxPerCall ?? "1", 2));
+    setMaxPerDay(formatUsdc(info.policy.maxPerDay ?? "10", 2));
+    setEditingPolicy(true);
+  };
+
+  const cancelEdit = () => {
+    if (!info) return;
+    setMaxPerCall(formatUsdc(info.policy.maxPerCall ?? "1", 2));
+    setMaxPerDay(formatUsdc(info.policy.maxPerDay ?? "10", 2));
+    if (info.policy.enabled) setEditingPolicy(false);
   };
 
   if (loading) {
@@ -144,9 +156,10 @@ export function AgentWalletPanel({ onFundSepolia }: { onFundSepolia?: (address: 
 
       {info && (
         <>
+          {/* Agent address */}
           <div>
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-1.5">
-              Openfort agent wallet (pays for MCP tools)
+            <p className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-white/30">
+              Openfort agent wallet
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 truncate font-mono text-[12px] text-foreground/90">
@@ -156,111 +169,162 @@ export function AgentWalletPanel({ onFundSepolia }: { onFundSepolia?: (address: 
                 type="button"
                 onClick={copyAddress}
                 className="border border-white/[0.08] p-1.5 text-white/40 hover:text-white/70"
+                aria-label="Copy address"
               >
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
               </button>
             </div>
             <p className="mt-1 font-mono text-[10px] text-white/25">
-              {shortenAddress(info.agent.openfortWalletId, 6)} · Arbitrum Sepolia · spend from this address only
+              Arbitrum Sepolia · Axon pays MCP tools from this address
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-2 border border-white/[0.06] p-3">
-              <div className="flex items-center gap-1.5 text-[11px] text-white/45">
-                <Wallet className="h-3.5 w-3.5" /> Fund agent (Sepolia USDC)
-              </div>
-              <p className="text-[11px] text-white/35 leading-relaxed">
-                Send Arbitrum Sepolia USDC to the address above so Openfort can pay x402 quotes.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-full font-mono text-[11px]"
-                onClick={() => onFundSepolia?.(info.agent.address)}
-              >
-                Open transfer → agent
-              </Button>
+          {/* Fund — Sepolia only (UA can't target Sepolia) */}
+          <div className="space-y-2 border border-white/[0.06] p-3">
+            <div className="flex items-center gap-1.5 text-[11px] text-white/45">
+              <Wallet className="h-3.5 w-3.5" /> Fund with Sepolia USDC
             </div>
-
-            <div className="space-y-2 border border-white/[0.06] p-3">
-              <div className="flex items-center gap-1.5 text-[11px] text-white/45">
-                <Wallet className="h-3.5 w-3.5" /> Fund via Particle UA (cross-chain)
-              </div>
-              <Label className="text-[10px] text-white/30">USDC amount</Label>
-              <Input
-                value={fundAmount}
-                onChange={(e) => setFundAmount(e.target.value)}
-                className="h-8 font-mono text-[12px]"
-              />
-              <Button
-                type="button"
-                size="sm"
-                className="w-full font-mono text-[11px]"
-                disabled={funding}
-                onClick={fundFromUa}
-              >
-                {funding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "UA → agent wallet"}
-              </Button>
-              {fundMsg && (
-                <p className="text-[10px] text-emerald-400/80 break-all">{fundMsg}</p>
-              )}
-            </div>
-          </div>
-
-          <div className="border border-white/[0.06] p-3 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-[11px] text-white/45">
-                <Shield className="h-3.5 w-3.5" /> Spending policy
-              </div>
-              <span
-                className={`font-mono text-[10px] uppercase tracking-wider ${
-                  info.policy.enabled ? "text-emerald-400/80" : "text-amber-400/80"
-                }`}
-              >
-                {info.policy.enabled ? "Enabled" : "Disabled — required for MCP"}
-              </span>
-            </div>
-            <p className="text-[11px] text-white/35 leading-relaxed">
-              Approve once. Axon then signs tool payments from your agent wallet within these caps — no popup per call.
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label className="text-[10px] text-white/30">Max / call (USDC)</Label>
-                <Input
-                  value={maxPerCall}
-                  onChange={(e) => setMaxPerCall(e.target.value)}
-                  className="h-8 font-mono text-[12px]"
-                />
-              </div>
-              <div>
-                <Label className="text-[10px] text-white/30">Max / day (USDC)</Label>
-                <Input
-                  value={maxPerDay}
-                  onChange={(e) => setMaxPerDay(e.target.value)}
-                  className="h-8 font-mono text-[12px]"
-                />
-              </div>
-            </div>
-            <p className="font-mono text-[10px] text-white/25">
-              Spent today: {info.policy.spentToday} USDC
+            <p className="text-[11px] leading-relaxed text-white/35">
+              Transfer Arbitrum Sepolia USDC to the agent address above. MCP tools
+              settle on Sepolia — Particle Universal Account moves mainnet assets
+              only, so it can&apos;t fund this wallet.
             </p>
             <Button
               type="button"
               size="sm"
               className="w-full font-mono text-[11px]"
-              disabled={savingPolicy}
-              onClick={enablePolicy}
+              onClick={() => onFundSepolia?.(info.agent.address)}
             >
-              {savingPolicy ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : info.policy.enabled ? (
-                "Update policy"
-              ) : (
-                "Allow Axon to spend within limits"
-              )}
+              Transfer USDC to agent
+              <ArrowRight className="ml-1.5 h-3 w-3" />
             </Button>
+          </div>
+
+          {/* Spending policy */}
+          <div className="space-y-3 border border-white/[0.06] p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-[11px] text-white/45">
+                <Shield className="h-3.5 w-3.5" /> Spending policy
+              </div>
+              <span
+                className={`font-mono text-[10px] uppercase tracking-wider ${
+                  info.policy.enabled
+                    ? "text-emerald-400/80"
+                    : "text-amber-400/80"
+                }`}
+              >
+                {info.policy.enabled ? "Enabled" : "Not set — required for MCP"}
+              </span>
+            </div>
+
+            {!editingPolicy ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white/[0.02] px-3 py-2.5">
+                    <p className="font-mono text-[10px] uppercase tracking-wider text-white/30">
+                      Max / call
+                    </p>
+                    <p className="mt-1 font-mono text-[15px] tabular-nums text-foreground/90">
+                      {formatUsdc(info.policy.maxPerCall)}{" "}
+                      <span className="text-[11px] text-white/35">USDC</span>
+                    </p>
+                  </div>
+                  <div className="bg-white/[0.02] px-3 py-2.5">
+                    <p className="font-mono text-[10px] uppercase tracking-wider text-white/30">
+                      Max / day
+                    </p>
+                    <p className="mt-1 font-mono text-[15px] tabular-nums text-foreground/90">
+                      {formatUsdc(info.policy.maxPerDay)}{" "}
+                      <span className="text-[11px] text-white/35">USDC</span>
+                    </p>
+                  </div>
+                </div>
+                <p className="font-mono text-[10px] text-white/25">
+                  Spent today: {formatUsdc(info.policy.spentToday, 4)} USDC
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full font-mono text-[11px]"
+                  onClick={startEdit}
+                >
+                  <Pencil className="mr-1.5 h-3 w-3" />
+                  Update policy
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-[11px] leading-relaxed text-white/35">
+                  Caps for automatic MCP payments from your agent wallet. No
+                  popup per call once enabled.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-[10px] text-white/30">
+                      Max / call (USDC)
+                    </Label>
+                    <Input
+                      inputMode="decimal"
+                      value={maxPerCall}
+                      onChange={(e) => setMaxPerCall(e.target.value)}
+                      onBlur={() =>
+                        setMaxPerCall(normalizeUsdcInput(maxPerCall))
+                      }
+                      className="h-8 font-mono text-[12px]"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-white/30">
+                      Max / day (USDC)
+                    </Label>
+                    <Input
+                      inputMode="decimal"
+                      value={maxPerDay}
+                      onChange={(e) => setMaxPerDay(e.target.value)}
+                      onBlur={() => setMaxPerDay(normalizeUsdcInput(maxPerDay))}
+                      className="h-8 font-mono text-[12px]"
+                    />
+                  </div>
+                </div>
+                <p className="font-mono text-[10px] text-white/25">
+                  Spent today: {formatUsdc(info.policy.spentToday, 4)} USDC
+                </p>
+                <div className="flex gap-2">
+                  {info.policy.enabled && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 font-mono text-[11px]"
+                      disabled={savingPolicy}
+                      onClick={cancelEdit}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="flex-1 font-mono text-[11px]"
+                    disabled={savingPolicy}
+                    onClick={savePolicy}
+                  >
+                    {savingPolicy ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : info.policy.enabled ? (
+                      "Save limits"
+                    ) : (
+                      "Enable spending"
+                    )}
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </>
       )}

@@ -33,6 +33,25 @@ function optional(key: string, fallback = ""): string {
   return process.env[key] ?? fallback;
 }
 
+/**
+ * Openfort expects a base64-encoded EC P-256 private key in DER format —
+ * NOT a PEM block. Dashboard copy often includes PEM headers or escaped `\n`.
+ * @see https://www.openfort.io/docs
+ */
+export function normalizeOpenfortWalletSecret(raw: string): string {
+  if (!raw) return raw;
+  let s = raw.trim();
+  // Quoted values sometimes retain literal \n sequences
+  if (s.includes("\\n")) s = s.replace(/\\n/g, "\n");
+  s = s.replace(/\\r/g, "").replace(/\r/g, "");
+  if (s.includes("BEGIN") && s.includes("PRIVATE KEY")) {
+    s = s
+      .replace(/-----BEGIN [^-]+-----/g, "")
+      .replace(/-----END [^-]+-----/g, "");
+  }
+  return s.replace(/\s+/g, "");
+}
+
 export function env(): ServerEnv {
   if (_cached) return _cached;
   _cached = {
@@ -62,7 +81,9 @@ export function env(): ServerEnv {
     ),
 
     OPENFORT_SECRET_KEY: optional("OPENFORT_SECRET_KEY"),
-    OPENFORT_WALLET_SECRET: optional("OPENFORT_WALLET_SECRET"),
+    OPENFORT_WALLET_SECRET: normalizeOpenfortWalletSecret(
+      optional("OPENFORT_WALLET_SECRET")
+    ),
     OPENFORT_POLICY_ID: optional("OPENFORT_POLICY_ID"),
   };
 
@@ -90,7 +111,8 @@ export function particleConfigured(): boolean {
 
 export function openfortConfigured(): boolean {
   try {
-    return Boolean(env().OPENFORT_SECRET_KEY);
+    const e = env();
+    return Boolean(e.OPENFORT_SECRET_KEY && e.OPENFORT_WALLET_SECRET);
   } catch {
     return false;
   }

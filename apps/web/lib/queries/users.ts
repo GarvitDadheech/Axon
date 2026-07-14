@@ -65,6 +65,13 @@ export async function enableServerSigning(
   maxPerCall?: string,
   maxPerDay?: string
 ): Promise<DBUser> {
+  const toUsdc = (v?: string) => {
+    if (v == null || v === "") return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return n.toFixed(2);
+  };
+
   const row = await queryOne<DBUser>(
     `UPDATE users
      SET server_signing_enabled = $2,
@@ -73,7 +80,7 @@ export async function enableServerSigning(
          updated_at = NOW()
      WHERE id = $1
      RETURNING *`,
-    [userId, enabled, maxPerCall ?? null, maxPerDay ?? null]
+    [userId, enabled, toUsdc(maxPerCall), toUsdc(maxPerDay)]
   );
   return row!;
 }

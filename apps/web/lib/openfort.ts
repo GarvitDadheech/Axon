@@ -8,7 +8,8 @@
  * 3. User enables spending policy (max_per_call / max_per_day)
  * 4. MCP calls openfortPayer → USDC transfer with x402:<reference> in calldata
  *
- * Requires OPENFORT_SECRET_KEY (+ optional OPENFORT_WALLET_SECRET, OPENFORT_POLICY_ID).
+ * Requires OPENFORT_SECRET_KEY + OPENFORT_WALLET_SECRET (base64 DER, not PEM).
+ * OPENFORT_POLICY_ID optional for gas sponsorship.
  * No fake tx hashes — payments fail closed when Openfort is not configured.
  */
 
