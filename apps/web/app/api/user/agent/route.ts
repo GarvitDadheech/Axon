@@ -4,6 +4,7 @@ import { findUserById } from "@/lib/queries/users";
 import { getOrCreateAgentWallet } from "@/lib/openfort";
 import { getSpentToday } from "@/lib/queries/api-calls";
 import { openfortConfigured } from "@/lib/env";
+import { fetchSepoliaUsdcBalance } from "@/lib/sepolia-usdc";
 
 /** Provision (or return) the user's Openfort agent wallet + spending policy. */
 export async function GET(request: NextRequest) {
@@ -25,6 +26,16 @@ export async function GET(request: NextRequest) {
     const user = (await findUserById(auth.dbUserId))!;
     const spentToday = await getSpentToday(auth.dbUserId);
 
+    let usdc = "0";
+    try {
+      usdc = await fetchSepoliaUsdcBalance(wallet.address);
+    } catch (e) {
+      console.warn("[axon] failed to read Sepolia USDC balance:", e);
+    }
+
+    const usdcNum = Number(usdc);
+    const usdcDisplay = Number.isFinite(usdcNum) ? usdcNum.toFixed(2) : usdc;
+
     return Response.json({
       agent: {
         openfortWalletId: wallet.id,
@@ -32,13 +43,19 @@ export async function GET(request: NextRequest) {
         chain: "arbitrum-sepolia",
         chainId: 421614,
       },
+      balances: {
+        usdc: usdcDisplay,
+        usdcRaw: usdc,
+        chain: "arbitrum-sepolia",
+        token: "USDC",
+      },
       policy: {
         enabled: user.server_signing_enabled,
         maxPerCall: user.max_per_call,
         maxPerDay: user.max_per_day,
         spentToday: spentToday.toFixed(4),
       },
-      magicWallet: auth.wallet, // Particle Auth EOA
+      magicWallet: auth.wallet,
     });
   } catch (err) {
     return serverError(err);

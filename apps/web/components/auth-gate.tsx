@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/components/providers";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface AuthGateProps {
@@ -12,14 +12,20 @@ interface AuthGateProps {
 export function AuthGate({ children }: AuthGateProps) {
   const { ready, authenticated } = useAuth();
   const router = useRouter();
+  // Keep SSR + first client paint identical to avoid hydration mismatch
+  // (server always sees ready=false; client may already be authenticated).
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (ready && !authenticated) {
-      router.replace("/");
-    }
-  }, [ready, authenticated, router]);
+    setMounted(true);
+  }, []);
 
-  if (!ready) {
+  useEffect(() => {
+    if (!mounted || !ready) return;
+    if (!authenticated) router.replace("/");
+  }, [mounted, ready, authenticated, router]);
+
+  if (!mounted || !ready) {
     return (
       <div className="flex flex-col gap-4 p-8">
         <Skeleton className="h-8 w-48" />

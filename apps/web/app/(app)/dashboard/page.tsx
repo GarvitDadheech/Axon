@@ -7,7 +7,7 @@ import { ExternalLink, RefreshCw, Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { shortenAddress, formatAmount } from "@/lib/utils";
-import { useUniversalAccount } from "@/hooks/use-universal-account";
+import { useAgentWallet } from "@/hooks/use-agent-wallet";
 import { AgentWalletPanel } from "@/components/agent-wallet-panel";
 import { TransferModal } from "@/components/wallet-modal";
 
@@ -227,8 +227,12 @@ function MarketplaceRow({ api }: { api: MarketplaceApi }) {
 export default function DashboardPage() {
   const { getIdToken, user } = useAuth();
   const address = user?.wallet ?? undefined;
-  const { balance: agentBalance, loading: balanceLoading, refetch: refetchBalance } =
-    useUniversalAccount(address);
+  const {
+    info: agentWallet,
+    loading: balanceLoading,
+    refetch: refetchBalance,
+  } = useAgentWallet();
+  const agentBalanceUsdc = agentWallet?.usdc ?? "0.00";
 
   const [data, setData] = useState<DashboardData>({
     stats: null,
@@ -330,8 +334,8 @@ export default function DashboardPage() {
       <div className="grid grid-cols-3 gap-px border border-white/[0.07] bg-white/[0.07]">
         {[
           {
-            label: "Agent balance",
-            value: balanceLoading ? "…" : `$${agentBalance?.unifiedUsd ?? "0.00"}`,
+            label: "Agent USDC (Sepolia)",
+            value: balanceLoading ? "…" : `${agentBalanceUsdc} USDC`,
           },
           {
             label: "Spent",
@@ -346,13 +350,13 @@ export default function DashboardPage() {
             <p className="font-mono text-[10px] uppercase tracking-wider text-white/30">
               {item.label}
             </p>
-            <p className="mt-1.5 font-mono text-[14px] text-foreground/90 tabular-nums">
-              {loadingData && item.label !== "Agent balance" ? (
+            <div className="mt-1.5 font-mono text-[14px] text-foreground/90 tabular-nums">
+              {loadingData && item.label !== "Agent USDC (Sepolia)" ? (
                 <Skeleton className="h-4 w-20" />
               ) : (
                 item.value
               )}
-            </p>
+            </div>
           </div>
         ))}
       </div>

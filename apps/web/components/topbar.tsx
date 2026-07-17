@@ -15,7 +15,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { shortenAddress } from "@/lib/utils";
 import { useState, useCallback } from "react";
 import { TransferModal } from "@/components/wallet-modal";
-import { useUniversalAccount } from "@/hooks/use-universal-account";
+import { useAgentWallet } from "@/hooks/use-agent-wallet";
 
 export function Topbar() {
   const { user, logout } = useAuth();
@@ -24,7 +24,8 @@ export function Topbar() {
 
   const address = user?.wallet ?? "";
 
-  const { balance: agentBalance, loading: balanceLoading, refetch: refetchBalance } = useUniversalAccount(address || undefined);
+  const { info: agentWallet, loading: balanceLoading, refetch: refetchBalance } =
+    useAgentWallet();
 
   const copyAddress = useCallback(async () => {
     if (!address) return;
@@ -86,7 +87,7 @@ export function Topbar() {
               <div className="mx-1 mb-1 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60">
-                    Agent balance{agentBalance?.stub ? " (demo)" : ""}
+                    Agent USDC · Sepolia
                   </span>
                   <button
                     onClick={(e) => { e.preventDefault(); refetchBalance(); }}
@@ -96,7 +97,7 @@ export function Topbar() {
                     <RefreshCw className={`h-3 w-3 ${balanceLoading ? "animate-spin" : ""}`} />
                   </button>
                 </div>
-                {balanceLoading && !agentBalance ? (
+                {balanceLoading && !agentWallet ? (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Loading…
@@ -104,17 +105,16 @@ export function Topbar() {
                 ) : (
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">Unified (all chains)</span>
-                      <span className="text-xs font-mono font-medium text-foreground tabular-nums">
-                        ${agentBalance?.unifiedUsd ?? "0.00"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">USDC on Arbitrum</span>
+                      <span className="text-xs text-muted-foreground">Openfort agent</span>
                       <span className="text-xs font-mono font-medium text-primary tabular-nums">
-                        ${agentBalance?.arbitrumUsdc ?? "0.00"}
+                        {agentWallet?.usdc ?? "0.00"} USDC
                       </span>
                     </div>
+                    {agentWallet?.address && (
+                      <p className="font-mono text-[10px] text-muted-foreground/70 truncate">
+                        {shortenAddress(agentWallet.address)}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

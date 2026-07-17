@@ -23,6 +23,11 @@ interface AgentInfo {
     chain: string;
     chainId: number;
   };
+  balances?: {
+    usdc: string;
+    chain: string;
+    token: string;
+  };
   policy: {
     enabled: boolean;
     maxPerCall: string | null;
@@ -179,7 +184,8 @@ export function AgentWalletPanel({
               </button>
             </div>
             <p className="mt-1 font-mono text-[10px] text-white/25">
-              Arbitrum Sepolia · Axon pays MCP tools from this address
+              Arbitrum Sepolia · {info.balances?.usdc ?? "—"} USDC · Axon pays MCP
+              tools from this address
             </p>
           </div>
 
