@@ -6,7 +6,7 @@ function azureConfig() {
   ).replace(/\/$/, "");
   const apiKey =
     process.env.AZURE_API_KEY || process.env.AZURE_OPENAI_API_KEY || "";
-  const model = process.env.AZURE_VIDEO_MODEL || "sora2";
+  const model = process.env.AZURE_VIDEO_MODEL || "sora-2";
 
   if (!endpoint || !apiKey) {
     throw new Error(

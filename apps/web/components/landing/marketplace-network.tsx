@@ -12,7 +12,6 @@ const CLEAR = { x: 0, y: 0, w: 480, h: 360 };
 
 const HUB = { x: 780, y: 380 };
 const AGENT = { x: 220, y: 580 };
-const ESCROW = { x: 780, y: 560 };
 const PROVIDER = { x: 1080, y: 680 };
 
 const MAIN_ROUTE = orthogonalPath([
@@ -22,9 +21,7 @@ const MAIN_ROUTE = orthogonalPath([
   { x: 560, y: 300 },
   { x: HUB.x, y: 300 },
   { x: HUB.x, y: HUB.y },
-  { x: HUB.x, y: ESCROW.y },
-  { x: ESCROW.x, y: ESCROW.y },
-  { x: ESCROW.x, y: 640 },
+  { x: HUB.x, y: 640 },
   { x: PROVIDER.x, y: 640 },
   { x: PROVIDER.x, y: PROVIDER.y },
 ]);
@@ -134,7 +131,6 @@ export function MarketplaceNetwork() {
   const spineNodes = [
     { ...AGENT, label: "Agent", tier: "primary" as const },
     { ...HUB, label: "Marketplace", tier: "hub" as const },
-    { ...ESCROW, label: "Escrow", tier: "hub" as const },
     { ...PROVIDER, label: "Provider", tier: "primary" as const },
   ];
 

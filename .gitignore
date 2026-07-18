@@ -46,3 +46,4 @@ coverage/
 keypair*.json
 
 .claude/settings.json
+.venv-deck/

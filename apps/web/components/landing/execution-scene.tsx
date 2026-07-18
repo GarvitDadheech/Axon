@@ -16,17 +16,17 @@ const RECEIPT = {
 const LEDGER = [
   { id: "exec_7d1e", api: "weather.current", amount: "0.002", status: "settled" },
   { id: "exec_6c0b", api: "embed.text", amount: "0.003", status: "settled" },
-  { id: "exec_5a9f", api: "search.query", amount: "0.008", status: "refunded" },
+  { id: "exec_5a9f", api: "search.query", amount: "0.008", status: "failed" },
 ] as const;
 
 const GUARANTEES = [
   {
-    label: "Escrow",
-    value: "Funds lock before execution. Release only on verified response.",
+    label: "x402",
+    value: "API returns a quote. Agent pays USDC, then retries with proof.",
   },
   {
     label: "Verification",
-    value: "Every call is checked. Failed work never pays out.",
+    value: "Paywall checks the on-chain transfer and reference before serving.",
   },
   {
     label: "Settlement",
@@ -58,8 +58,8 @@ export function ExecutionScene() {
             Every execution leaves a receipt.
           </h2>
           <p className="mt-4 text-[15px] text-white/38 max-w-[36ch]">
-            Payments settle when work is verified. Trust is enforced in code, not
-            policy.
+            Each paid call settles on Arbitrum with a transaction hash. Proof lives
+            on-chain, not in a billing spreadsheet.
           </p>
         </div>
 
