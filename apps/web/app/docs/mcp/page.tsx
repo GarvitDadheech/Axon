@@ -341,7 +341,7 @@ export default function McpDocsPage() {
         <p className="text-[13px] text-white/30">
           Questions?{" "}
           <a
-            href="https://github.com/GarvitDadheech/plugix-monad"
+            href="https://github.com/GarvitDadheech/Axon"
             target="_blank"
             rel="noopener noreferrer"
             className="text-emerald-400/70 hover:text-emerald-400 transition-colors"

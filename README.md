@@ -1,18 +1,28 @@
 # Axon
 
-Axon is the execution layer for autonomous AI agents.
+I built Axon so AI agents can discover paid APIs, pay in USDC, and call them without me clicking approve on every request.
 
-Developers publish pay-per-use APIs to a marketplace. Agents discover those APIs, pay in USDC on Arbitrum, and call them without a human approving every request. Identity, spend policy, gas sponsorship, and settlement are wired so the agent can stay in the tool loop and keep working.
+Developers publish pay-per-use endpoints to a marketplace. Agents find them through the web app or MCP, settle on Arbitrum, and get the result plus a transaction hash. Particle handles who you are. Openfort handles the spend wallet. Arbitrum is where the money lands.
 
-This repo is a working product: marketplace, publisher flow, dashboard, MCP server for Claude and Cursor, and on-chain settlement.
+How each sponsor is wired: [docs/axon-hackathon-integration.md](docs/axon-hackathon-integration.md).
 
-Sponsor wiring (Particle, Openfort, Arbitrum) is spelled out in [docs/axon-hackathon-integration.md](docs/axon-hackathon-integration.md).
+## Why it exists
 
-## The problem
+Agents already call tools. Paying for tools still assumes a human in the loop: API keys, subscriptions, wallet popups, gas. That breaks autonomy. Axon gives the agent a funded wallet under spending limits and runs the payment inside the tool call.
 
-AI agents can already call tools. Paying for those tools is still human-shaped.
+## What I built
 
-API keys and subscriptions assume an operator. Wallet popups break autonomous loops. Bridging and gas turn every call into ops work. Axon closes that gap: the agent discovers a priced API, pays from a dedicated agent wallet under user-set limits, and gets the response plus a transaction proof.
+**Marketplace** for anyone to list a priced API (URL, schema, USDC price). Agents browse it in the UI or via `x402_list_apis`.
+
+**Publish** so API owners list their own endpoints. Settlement goes to the receiver on their x402 paywall. Axon discovers and pays; it does not custody publisher keys.
+
+**Agent wallet + policy.** After Particle login, each user gets an Openfort backend wallet. Fund it with USDC, set per-call and per-day caps, turn on server signing. Caps run in Axon before Openfort signs. Gas uses an Openfort sponsorship policy so the agent path is not stuck waiting for ETH.
+
+**MCP** at `/api/mcp` for Claude and Cursor. Particle Bearer required (`uuid:token`). Tools: `x402_list_apis`, `x402_call_api`. Paid responses include `x402Tnx` and land in the execution timeline.
+
+**Dashboard** for agent address, balance, policy, history, and your listings.
+
+I seed a couple of example APIs so a fresh install has something to call. They are demos. The real product is the marketplace rail; anyone can publish their own API.
 
 ## Architecture
 
@@ -20,159 +30,104 @@ API keys and subscriptions assume an operator. Wallet popups break autonomous lo
 flowchart TB
   subgraph clients [Clients]
     User[User]
-    Agent[Claude / Cursor MCP host]
+    Agent[Claude / Cursor]
   end
 
-  subgraph axon [Axon — Next.js]
+  subgraph axon [Axon]
     UI[Dashboard · Marketplace · Publish]
     MCP["/api/mcp"]
-    Pay["Openfort payer + policy"]
-    X402C["@x402/client"]
-    X402S["@x402/payment-middleware"]
+    Pay[Openfort payer + policy]
+    Client["@x402/client"]
+    MW["@x402/payment-middleware"]
     DB[(Postgres)]
   end
 
   subgraph sponsors [Sponsors]
-    Particle[Particle Auth + Universal Accounts]
-    Openfort[Openfort backend wallets]
+    Particle[Particle Auth + UA]
+    Openfort[Openfort]
     Arb[Arbitrum Sepolia USDC]
   end
 
   Pub[Publisher APIs]
 
-  User --> Particle
-  Particle --> UI
-  UI --> DB
-  Agent -->|Bearer uuid:token| MCP
+  User --> Particle --> UI --> DB
+  Agent -->|Bearer| MCP
   MCP --> Particle
-  MCP --> Pay
-  Pay --> Openfort
-  Openfort --> Arb
-  MCP --> X402C
-  X402C -->|402 → pay → retry| Pub
-  Pub --> X402S
-  X402S -->|verify Transfer + x402:ref| Arb
+  MCP --> Pay --> Openfort --> Arb
+  MCP --> Client -->|402 → pay → retry| Pub
+  Pub --> MW -->|verify Transfer + ref| Arb
   MCP --> DB
 ```
 
-One deployable app owns the UI, authenticated APIs, MCP transport, and paywall helpers. Postgres holds users, listings, and call history. Shared packages implement the x402 client and server sides so publishers and Axon speak the same protocol.
+One Next.js app: UI, APIs, MCP, paywalls. Postgres for users, listings, calls. Two packages so the client and the publisher speak the same x402 protocol.
 
-## What we built
-
-**Marketplace.** Public catalog of pay-per-use APIs (URL, price, chain, request/response schemas). Agents browse it in the web app or via MCP `x402_list_apis`.
-
-**Publish.** API owners list endpoints on Axon. Settlement goes to the receiver configured in their own x402 paywall. Axon orchestrates discovery and payment; it does not hold publisher keys.
-
-**Agent wallet and policy.** After Particle sign-in, Axon provisions an Openfort backend wallet per user. The user funds it with USDC, sets `max_per_call` / `max_per_day`, and enables server signing. Caps are enforced in Axon before Openfort is asked to sign. Gas for agent payments uses an Openfort sponsorship policy (`pol_…`), so the spend path is not blocked on native ETH UX.
-
-**MCP.** Streamable HTTP at `/api/mcp`. Auth is required: Particle Bearer `uuid:token`. Tools: `x402_list_apis`, `x402_call_api`. Every successful paid call returns the API payload plus `x402Tnx` (`tnxHash`, `amount`, `token`) and is written to `api_calls` for the dashboard timeline.
-
-**Dashboard.** Agent address, Sepolia USDC balance, spending policy controls, execution history, and owned listings.
-
-Sample paid routes may ship in a seed database so a fresh deploy has something to call. They are example listings. The product is the marketplace and payment rail; any publisher can plug in their own API.
-
-## Paid call path
+## How a paid call works
 
 ```mermaid
 sequenceDiagram
   participant Host as MCP host
-  participant Axon as Axon /api/mcp
-  participant OF as Openfort agent wallet
-  participant API as Publisher API
-  participant Chain as Arbitrum Sepolia
+  participant Axon as /api/mcp
+  participant OF as Openfort
+  participant API as Publisher
+  participant Chain as Arbitrum
 
-  Host->>Axon: x402_call_api(apiId, body) + Particle Bearer
-  Axon->>Axon: verify Particle session, load user + policy
-  Axon->>API: POST endpoint_url
-  API-->>Axon: 402 + quote (price, receiver, reference, expiry)
-  Axon->>Axon: enforce max_per_call / max_per_day
-  Axon->>OF: USDC transfer + calldata x402:reference
-  OF->>Chain: sendTransaction (gas policy)
+  Host->>Axon: x402_call_api + Particle Bearer
+  Axon->>Axon: verify session, check policy
+  Axon->>API: POST
+  API-->>Axon: 402 quote
+  Axon->>OF: USDC transfer + x402:reference
+  OF->>Chain: sendTransaction
   Chain-->>OF: receipt
-  Axon->>API: retry + x-payment-tx + x-payment-reference
-  API->>Chain: verify Transfer log + reference binding
-  API-->>Axon: 200 + result + x402Tnx
-  Axon->>Axon: insert api_calls
-  Axon-->>Host: JSON result (includes settlement)
+  Axon->>API: retry with payment headers
+  API->>Chain: verify Transfer + reference
+  API-->>Axon: 200 + x402Tnx
+  Axon-->>Host: result + settlement
 ```
 
-There is no shared admin `PAYER_PRIVATE_KEY`. Every MCP payment is attributed to the authenticated user’s Openfort agent wallet.
+No shared admin payer. Every MCP payment leaves that user’s Openfort agent wallet.
 
-## Technical detail
+## How it fits together
 
-### Identity and auth
+**Auth.** Particle login → embedded wallet + session. Server checks `getUserInfo`, stores the user on `particle_user_id`. MCP without a Bearer gets 401.
 
-Particle Auth is the identity layer. Social / email login yields an embedded EVM wallet and a session pair (`uuid`, `token`). The client sends `Authorization: Bearer uuid:token` on dashboard APIs and MCP. The server verifies via Particle’s `getUserInfo` RPC, resolves the EVM address, and upserts `users` on `particle_user_id`. Unauthenticated MCP requests return 401.
+**Two wallets.** Particle (and Universal Account) is identity and funding. Openfort is the spend engine for MCP. Settlement on the demo is Arbitrum Sepolia USDC through Openfort; UA covers the unified balance / chain-abstraction story on the Particle side.
 
-### Two wallets
+**Payment.** Encode USDC `transfer`, append `x402:<reference>` in calldata, Openfort `sendTransaction` on `421614` with gas policy `pol_…`. Wait for receipt, then retry. Signing rules live in Openfort (`ply_…`); I do not pass those as the gas policy id.
 
-| Wallet | Owner | Role |
-| --- | --- | --- |
-| Particle Auth EOA (+ Universal Account) | User | Identity, session, funding UX, unified balance view |
-| Openfort backend account | Axon-controlled spend | Signs USDC payments for MCP under policy |
+**x402.** `@x402/client` does 402 → pay → retry. `@x402/payment-middleware` quotes, checks TTL/replay, verifies on-chain Transfer + reference, attaches `x402Tnx`. Publishers wrap their API; Axon MCP is the caller with the user’s payer.
 
-Universal Accounts (EIP-7702 on the Particle address) support the chain-abstracted balance narrative and optional value movement. Marketplace settlement for the demo runs on Arbitrum Sepolia through Openfort so the autonomous pay loop is fully exercisable on testnet USDC.
+**Data.** `users` (Particle, Openfort, policy), `apis` (listing), `api_calls` (amount, status, tx).
 
-### Openfort payment construction
+**Stack.** Next.js 15, React 19, Tailwind/shadcn, Postgres, Particle, Openfort, viem, MCP streamable HTTP.
 
-On pay, Axon encodes a USDC `transfer(receiver, amount)`, concatenates hex `x402:<reference>` onto the calldata, and calls Openfort `accounts.evm.backend.sendTransaction` on chain id `421614`. Signing policies (`ply_…`) are configured in the Openfort project and evaluated automatically; the runtime gas sponsorship id passed into send is `pol_…`. Axon waits for the receipt before retrying the publisher.
+## Sponsors
 
-### x402 packages
-
-| Package | Responsibility |
+| | |
 | --- | --- |
-| `@x402/client` | `createUsdcClient({ payer })`: detect 402, pay, retry with `x-payment-tx` / `x-payment-reference` |
-| `@x402/payment-middleware` | Quote creation, TTL, replay store, on-chain Transfer verification, reference binding, `x402Tnx` on success. Express middleware and Fetch/Next helpers |
+| Particle Auth | Login, wallet, Bearer for UI and MCP |
+| Particle Universal Accounts | Unified balance; optional value toward spend |
+| Openfort | Agent wallet, silent signing, gas sponsorship |
+| Arbitrum | USDC settlement and verification |
 
-Publishers wrap their own endpoints with the middleware (receiver = where they earn). Axon’s MCP layer is the smart caller that owns the user’s Openfort payer.
-
-### Data model
-
-`users`: Particle id, wallet, Openfort account id/address, `server_signing_enabled`, `max_per_call`, `max_per_day`.  
-`apis`: owner, name, description, `endpoint_url`, `price_per_call`, chain, sample request/response schemas, visibility.  
-`api_calls`: user, api, amount, status, optional tx hash, timestamps.
-
-### Stack
-
-Next.js 15 App Router, React 19, Tailwind + shadcn/ui, Postgres (Supabase in production), Particle Auth + Universal Account SDK, Openfort Node SDK, viem for encoding/RPC, MCP TypeScript SDK (streamable HTTP).
-
-## Sponsor map
-
-| Piece | Role |
-| --- | --- |
-| Particle Auth | Login, embedded wallet, Bearer session for UI and MCP |
-| Particle Universal Accounts | Unified balance view; optional cross-chain value toward spend |
-| Openfort | Backend agent wallet, popup-free signing, gas sponsorship |
-| Arbitrum | USDC settlement and verification surface |
-
-Deeper architecture: [docs/axon-hackathon-integration.md](docs/axon-hackathon-integration.md).
+More detail on the wiring: [docs/axon-hackathon-integration.md](docs/axon-hackathon-integration.md).
 
 ## Settlement
 
-USDC on **Arbitrum Sepolia**.
+USDC on Arbitrum Sepolia · chain `421614` · [sepolia.arbiscan.io](https://sepolia.arbiscan.io) · token `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d`
 
-- Chain ID: `421614` (`eip155:421614`)
-- Explorer: [sepolia.arbiscan.io](https://sepolia.arbiscan.io)
-- USDC: `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` (6 decimals)
+## Surface
 
-## Product surface
-
-| Route / surface | Purpose |
+| | |
 | --- | --- |
-| `/` | Landing + Particle Auth |
-| `/dashboard` | Agent wallet, policy, activity |
-| `/marketplace` | Discover public APIs |
-| `/publish` | List a pay-per-use API |
-| MCP Integration UI | Bearer token + host config |
-| `POST /api/mcp` | MCP tools (`x402_list_apis`, `x402_call_api`) |
-| `POST /api/pay` | Pay a quote from the agent wallet |
-| `GET /api/user/agent` | Agent address, balance, policy |
-| `POST /api/user/enable-server-signing` | Toggle policy |
+| `/dashboard` | Wallet, policy, activity |
+| `/marketplace` | Discover APIs |
+| `/publish` | List an API |
+| MCP Integration | Token + host config |
+| `POST /api/mcp` | Agent tools |
+| `POST /api/pay` · `GET /api/user/agent` · policy routes | Spend path |
 
 ## Try it
 
-1. Sign in, fund the Openfort agent wallet with Sepolia USDC, enable a spending policy.
-2. Open MCP Integration, paste the Bearer token and MCP URL into Claude or Cursor.
-3. Run `x402_list_apis`, then `x402_call_api` against a listing. Confirm `x402Tnx` in the response and a row in execution history.
+Sign in → fund the Openfort agent wallet → enable policy → paste MCP config into Claude or Cursor → `x402_list_apis` → `x402_call_api`. You should see `x402Tnx` and a row in history.
 
-To publish: wrap your API with `@x402/payment-middleware`, set your receiver address, list it on Publish. Agents discover it the same way.
+To publish your own: wrap with `@x402/payment-middleware`, list on Publish.

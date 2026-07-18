@@ -1,5 +1,5 @@
 -- ============================================================
--- Plugix — Supabase init.sql
+-- Axon — Supabase init.sql
 -- Paste this entire file into the Supabase SQL editor and run.
 -- Safe to re-run: all statements use IF NOT EXISTS / OR REPLACE.
 -- ============================================================
@@ -11,10 +11,13 @@
 
 CREATE TABLE IF NOT EXISTS users (
   id                     SERIAL PRIMARY KEY,
-  privy_user_id          TEXT    NOT NULL UNIQUE,
+  particle_user_id       TEXT    NOT NULL UNIQUE,
+  email                  TEXT,
   wallet_address         TEXT    NOT NULL,
+  ua_address             TEXT,
+  openfort_wallet_id     TEXT,
+  openfort_wallet_address TEXT,
   server_signing_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-  signer_id              TEXT,
   max_per_call           NUMERIC(36, 18),
   max_per_day            NUMERIC(36, 18),
   created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -28,7 +31,7 @@ CREATE TABLE IF NOT EXISTS apis (
   description    TEXT,
   endpoint_url   TEXT    NOT NULL,
   price_per_call NUMERIC(36, 18) NOT NULL DEFAULT 0,
-  chain          TEXT    NOT NULL DEFAULT 'monad-devnet',
+  chain          TEXT    NOT NULL DEFAULT 'arbitrum-sepolia',
   is_public      BOOLEAN NOT NULL DEFAULT TRUE,
   sample_request  JSONB,
   sample_response JSONB,

@@ -1,12 +1,12 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: plugix-db
+    container_name: axon-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: plugix
-      POSTGRES_USER: plugix
-      POSTGRES_PASSWORD: plugix
+      POSTGRES_DB: axon
+      POSTGRES_USER: axon
+      POSTGRES_PASSWORD: axon
     ports:
       - "5433:5432"
     volumes:
@@ -14,7 +14,7 @@ services:
       - ./apps/web/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./apps/web/db/pg_hba.conf:/var/lib/postgresql/pg_hba.conf:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U plugix -d plugix"]
+      test: ["CMD-SHELL", "pg_isready -U axon -d axon"]
       interval: 10s
       timeout: 5s
       retries: 5
