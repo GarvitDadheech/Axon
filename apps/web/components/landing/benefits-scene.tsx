@@ -3,20 +3,20 @@
 const CONVICTIONS = [
   {
     num: "01",
-    title: "Agents should spend without asking permission.",
-    desc: "Autonomous systems need money that moves at machine speed — not checkout flows.",
+    title: "Chain-agnostic balance. One agent that spends.",
+    desc: "Particle Universal Accounts in EIP-7702 mode give users a unified balance. Openfort turns that into silent, policy-bound USDC spend for every tool call.",
     dominant: true,
   },
   {
     num: "02",
-    title: "A marketplace beats a dozen integrations.",
-    desc: "Discover, price, and pay in one place. No custom billing per API.",
+    title: "UX that disappears into the agent loop.",
+    desc: "No bridges in the critical path. No approve dialogs mid-workflow. Sign in once, set limits, let Claude or Cursor keep working.",
     dominant: false,
   },
   {
     num: "03",
-    title: "Settlement is part of the product.",
-    desc: "If confirmation is slow, the agent is slow. Arbitrum keeps the loop tight.",
+    title: "Settlement that feels instant.",
+    desc: "Every paid call settles in USDC on Arbitrum with an on-chain receipt. Proof is part of the response, not a separate billing product.",
     dominant: false,
   },
 ] as const;
@@ -29,10 +29,11 @@ export function BenefitsScene() {
       <div className="px-[clamp(1.25rem,4vw,3.5rem)]">
         <div className="max-w-xl mb-14">
           <h2 className="font-display text-[clamp(1.75rem,3.5vw,2.5rem)] font-semibold tracking-[-0.04em] text-[#f0eeea]">
-            Why Axon
+            Built for chain-agnostic UX
           </h2>
           <p className="mt-4 text-[15px] text-white/38 max-w-[36ch]">
-            Three beliefs behind how agents pay for the open web.
+            Universal Accounts, autonomous spend, and Arbitrum settlement in one product
+            surface.
           </p>
         </div>
 

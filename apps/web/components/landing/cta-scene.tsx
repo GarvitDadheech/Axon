@@ -15,10 +15,11 @@ export function CtaScene({ onLogin, ready }: CtaSceneProps) {
         <div className="grid gap-10 lg:grid-cols-12 lg:items-end lg:gap-8">
           <div className="lg:col-span-7">
             <h2 className="font-display text-[clamp(1.75rem,3.5vw,2.5rem)] font-semibold tracking-[-0.04em] text-[#f0eeea] max-w-[18ch]">
-              Ship agents that can actually act.
+              Experience agents that spend for you.
             </h2>
             <p className="mt-4 text-[15px] text-white/38 max-w-[36ch]">
-              Sign in with Google. Publish or consume APIs, settled on Arbitrum.
+              Particle Auth in. Universal Account balance. Openfort spend. Arbitrum
+              settlement. Open the dashboard and run the loop.
             </p>
             <button
               onClick={onLogin}
@@ -35,7 +36,8 @@ export function CtaScene({ onLogin, ready }: CtaSceneProps) {
               Axon
             </p>
             <p className="mt-3 text-[13px] text-white/35 leading-relaxed max-w-[32ch]">
-              The execution layer for autonomous agents. Settled on Arbitrum.
+              Chain-agnostic UX for AI agents. Powered by Particle Universal Accounts
+              and settled on Arbitrum.
             </p>
             <Link
               href="/docs/mcp"
@@ -57,7 +59,7 @@ export function CtaScene({ onLogin, ready }: CtaSceneProps) {
               Docs
             </Link>
             <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-white/20">
-              © 2025 · Arbitrum Sepolia
+              © 2026 · Particle · Openfort · Arbitrum
             </span>
           </div>
         </footer>

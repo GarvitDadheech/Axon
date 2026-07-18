@@ -46,10 +46,14 @@ export function DeveloperScene() {
       <div className="px-[clamp(1.25rem,4vw,3.5rem)]">
         <div className="max-w-xl mb-14">
           <h2 className="font-display text-[clamp(1.75rem,3.5vw,2.5rem)] font-semibold tracking-[-0.04em] text-[#f0eeea]">
-            Integrate in minutes.
+            One config.
+            <br />
+            Agents that can pay.
+       
           </h2>
           <p className="mt-4 text-[15px] text-white/38 max-w-[36ch]">
-            One MCP config block. Your agent connects to the marketplace.
+            Drop Axon into Claude or Cursor. Discovery, spend limits, and settlement
+            stay invisible to the user.
           </p>
         </div>
 
@@ -57,11 +61,11 @@ export function DeveloperScene() {
           <div className="flex flex-col justify-between gap-8 lg:py-1">
             <div className="space-y-4 border-l border-white/[0.06] pl-5">
               <p className="font-mono text-[10px] uppercase tracking-wider text-white/25">
-                Setup
+                Agent UX
               </p>
               <p className="text-[14px] text-white/38 leading-relaxed max-w-[28ch]">
-                Add Axon to your agent config. Payments and discovery work out of
-                the box.
+                Sign in once with Particle. Your Universal Account funds the loop.
+                The agent never sees a wallet popup mid-tool-call.
               </p>
             </div>
             <Link

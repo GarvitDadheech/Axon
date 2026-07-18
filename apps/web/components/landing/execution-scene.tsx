@@ -21,16 +21,16 @@ const LEDGER = [
 
 const GUARANTEES = [
   {
-    label: "x402",
-    value: "API returns a quote. Agent pays USDC, then retries with proof.",
+    label: "Universal Accounts",
+    value: "Particle UA + EIP-7702: one identity, unified balance, chain-abstracted funding.",
   },
   {
-    label: "Verification",
-    value: "Paywall checks the on-chain transfer and reference before serving.",
+    label: "Silent spend",
+    value: "Openfort agent wallet pays under your caps. No popup inside the MCP turn.",
   },
   {
-    label: "Settlement",
-    value: "Receipt confirmed on Arbitrum. Immutable execution record.",
+    label: "Arbitrum proof",
+    value: "x402 verifies USDC + reference on-chain before the API unlocks.",
   },
 ] as const;
 
@@ -55,11 +55,11 @@ export function ExecutionScene() {
       <div className="px-[clamp(1.25rem,4vw,3.5rem)]">
         <div className="max-w-xl mb-14">
           <h2 className="font-display text-[clamp(1.75rem,3.5vw,2.5rem)] font-semibold tracking-[-0.04em] text-[#f0eeea]">
-            Every execution leaves a receipt.
+            From tool call to on-chain receipt.
           </h2>
           <p className="mt-4 text-[15px] text-white/38 max-w-[36ch]">
-            Each paid call settles on Arbitrum with a transaction hash. Proof lives
-            on-chain, not in a billing spreadsheet.
+            The agent asks. Axon pays. Arbitrum confirms. The user only ever set a
+            spending policy.
           </p>
         </div>
 

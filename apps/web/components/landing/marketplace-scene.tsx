@@ -15,10 +15,11 @@ export function MarketplaceScene() {
       <div className="px-[clamp(1.25rem,4vw,3.5rem)]">
         <div className="max-w-xl mb-14">
           <h2 className="font-display text-[clamp(1.75rem,3.5vw,2.5rem)] font-semibold tracking-[-0.04em] text-[#f0eeea]">
-            Browse the API registry.
+            A marketplace agents can actually use.
           </h2>
           <p className="mt-4 text-[15px] text-white/38 max-w-[36ch]">
-            Agents pick endpoints from a live catalog. Providers list once, earn per call.
+            Discover priced APIs, pay per call in USDC, get the result back in the same
+            tool turn. Publishers list once. Agents compose freely.
           </p>
         </div>
 
