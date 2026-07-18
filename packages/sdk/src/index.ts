@@ -5,4 +5,5 @@ export * from "./replayStore.js";
 export * from "./verifyPayment.js";
 export * from "./expressMiddleware.js";
 export * from "./usdcPaywall.js";
+export * from "./fetchPaywall.js";
 

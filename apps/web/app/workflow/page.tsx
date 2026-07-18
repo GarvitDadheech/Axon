@@ -14,11 +14,10 @@ type StepData = {
 };
 
 export default function WorkflowPage() {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
   const [workflowStage, setWorkflowStage] = useState<WorkflowStage>("idle");
   const [steps, setSteps] = useState<StepData[]>([
     { name: "Generate Image", stage: "pending", price: "0.10" },
-    { name: "Generate Video", stage: "pending", price: "0.50" }
+    { name: "Generate Video (async job)", stage: "pending", price: "0.50" }
   ]);
   const [totalSpent, setTotalSpent] = useState<string | null>(null);
 
@@ -48,17 +47,9 @@ export default function WorkflowPage() {
   );
 
   const runWorkflow = useCallback(async () => {
-    if (!apiBaseUrl) {
-      setWorkflowStage("error");
-      setSteps((s) =>
-        s.map((step) => ({
-          ...step,
-          stage: "error" as const,
-          error: "Missing NEXT_PUBLIC_API_BASE_URL"
-        }))
-      );
-      return;
-    }
+    const base =
+      process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
+      window.location.origin;
 
     setWorkflowStage("running");
     setSteps((s) => s.map((step) => ({ ...step, stage: "pending" as const })));
@@ -73,7 +64,7 @@ export default function WorkflowPage() {
         return newSteps;
       });
 
-      const imageRes = await clientRef.current.fetch(`${apiBaseUrl}/api/generate-image`, {
+      const imageRes = await clientRef.current.fetch(`${base}/api/generate-image`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ prompt })
@@ -91,21 +82,21 @@ export default function WorkflowPage() {
         return newSteps;
       });
 
-      // Step 2: Generate video
+      // Step 2: Start video job (async — returns jobId; poll GET /api/generate-video/{jobId})
       setSteps((s) => {
         const newSteps = [...s];
         newSteps[1] = Object.assign({}, newSteps[1], { stage: "running" as const });
         return newSteps;
       });
 
-      const videoRes = await clientRef.current.fetch(`${apiBaseUrl}/api/generate-video`, {
+      const videoRes = await clientRef.current.fetch(`${base}/api/generate-video`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ prompt })
       });
 
       if (!videoRes.ok) {
-        throw new Error("Video generation failed");
+        throw new Error("Video job create failed");
       }
 
       const videoData = await videoRes.json();
@@ -129,7 +120,7 @@ export default function WorkflowPage() {
       );
       setWorkflowStage("error");
     }
-  }, [apiBaseUrl]);
+  }, []);
 
   return (
     <main style={{ display: "flex", flexDirection: "column", gap: 32, maxWidth: 800, margin: "0 auto", padding: "32px 16px" }}>

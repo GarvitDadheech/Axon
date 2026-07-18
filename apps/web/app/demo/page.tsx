@@ -22,8 +22,12 @@ type DemoState =
   | { stage: "error"; message: string };
 
 function getApiBaseUrl(): string {
+  // Same-origin Next routes by default (Vercel / local :3000).
+  // Override with NEXT_PUBLIC_API_BASE_URL only if APIs are hosted elsewhere.
   const v = process.env.NEXT_PUBLIC_API_BASE_URL;
-  return v ?? "";
+  if (v && v.trim()) return v.replace(/\/$/, "");
+  if (typeof window !== "undefined") return window.location.origin;
+  return "";
 }
 
 function getStageLabel(stage: Stage): string {
@@ -99,14 +103,14 @@ export default function DemoPage() {
       return;
     }
     if (!apiBaseUrl) {
-      setState({ stage: "error", message: "Missing NEXT_PUBLIC_API_BASE_URL" });
+      setState({ stage: "error", message: "Could not resolve API base URL" });
       return;
     }
 
     setState({ stage: "request_sent" });
 
     try {
-      const res = await client.fetch(`${apiBaseUrl}/api/ai/generate`, {
+      const res = await client.fetch(`${apiBaseUrl}/api/generate-image`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ prompt })

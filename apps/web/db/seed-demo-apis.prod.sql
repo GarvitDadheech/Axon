@@ -1,8 +1,5 @@
--- Reset marketplace listings to the two Axon demo tools (image + video).
--- Endpoints are same-origin Next routes (local :3000 or your Vercel URL).
--- Set PUBLIC_APP_URL when seeding for production, e.g.:
---   PUBLIC_APP_URL=https://your-app.vercel.app psql $DATABASE_URL -f seed-demo-apis.sql
--- Default base for local: http://localhost:3000
+-- Production-oriented seed: replace __PUBLIC_APP_URL__ before running, e.g.:
+--   sed "s|__PUBLIC_APP_URL__|https://your-app.vercel.app|g" seed-demo-apis.prod.sql | psql "$DATABASE_URL"
 
 TRUNCATE api_calls RESTART IDENTITY CASCADE;
 TRUNCATE apis RESTART IDENTITY CASCADE;
@@ -40,7 +37,7 @@ CROSS JOIN (
     (
       'AI Image Generation',
       'Generate a PNG from a text prompt (Azure gpt-image-2). Pays USDC on Arbitrum Sepolia via x402.',
-      'http://localhost:3000/api/generate-image',
+      '__PUBLIC_APP_URL__/api/generate-image',
       0.10,
       '{"prompt":"a robot dancing on a blockchain"}',
       '{"image":"data:image/png;base64,...","x402Tnx":{"tnxHash":"0x...","amount":0.1,"token":"USDC"}}'
@@ -48,7 +45,7 @@ CROSS JOIN (
     (
       'AI Video Generation',
       'Start an Azure Sora video job (async). Pays on POST; poll GET /api/generate-video/{jobId} until completed.',
-      'http://localhost:3000/api/generate-video',
+      '__PUBLIC_APP_URL__/api/generate-video',
       0.50,
       '{"prompt":"a robot dancing on a blockchain"}',
       '{"jobId":"...","status":"queued","pollUrl":"/api/generate-video/...","x402Tnx":{"tnxHash":"0x...","amount":0.5,"token":"USDC"}}'

@@ -27,6 +27,8 @@ plugix-monad/
 │       │       ├── stats/               # GET per-user analytics
 │       │       ├── balance/             # GET on-chain ETH/USDC balance
 │       │       ├── ua/simulate-deposit/ # POST — demo cross-chain UA deposit
+│       │       ├── generate-image/      # POST — paid Azure image (x402)
+│       │       ├── generate-video/      # POST paid create + GET [jobId] poll
 │       │       ├── pay/                 # POST — pay an x402 quote directly
 │       │       └── mcp/                 # MCP server (streamable HTTP)
 │       ├── components/
@@ -105,7 +107,7 @@ PARTICLE_PROJECT_ID=...
 PARTICLE_CLIENT_KEY=...
 PARTICLE_APP_ID=...
 PARTICLE_SERVER_KEY=...
-DATABASE_URL=postgresql://plugix:plugix@localhost:5433/plugix
+DATABASE_URL=postgresql://postgres.YOUR_PROJECT:YOUR_PASSWORD@aws-1-REGION.pooler.supabase.com:5432/postgres
 ```
 
 Openfort keys are required for real MCP agent payments.
@@ -132,11 +134,14 @@ docker exec -it plugix-db psql -U plugix -d plugix
 ### 4. Run
 
 ```bash
-npm run dev       # Web → :3000  +  API → :4000
-# or:
-npm run dev:web   # Web only → http://localhost:3000
-npm run dev:api   # Paid demo tools only → http://localhost:4000
+npm run dev       # Web only → http://localhost:3000 (dashboard + paid APIs + MCP)
+# optional legacy Express demo (not required):
+npm run dev:api   # → http://localhost:4000
 ```
+
+Paid demo tools are Next routes: `/api/generate-image`, `/api/generate-video`.
+
+Deploy to Vercel: see [`docs/deploy-vercel.md`](docs/deploy-vercel.md).
 
 ---
 

@@ -8,7 +8,14 @@ export function getPool(): Pool {
       connectionString: process.env.DATABASE_URL,
       max: 10,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
+      connectionTimeoutMillis: 15_000,
+      // Supabase (and many managed Postgres hosts) use certs that fail default Node verify
+      ssl:
+        /supabase\.co|pooler\.supabase\.com/.test(
+          process.env.DATABASE_URL ?? ""
+        ) || process.env.PGSSLMODE === "require"
+          ? { rejectUnauthorized: false }
+          : undefined,
     });
   }
   return pool;
