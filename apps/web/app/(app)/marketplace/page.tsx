@@ -85,7 +85,7 @@ function ApiDetailModal({ api, onClose }: { api: ApiListing; onClose: () => void
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-2xl p-0 overflow-hidden border-border bg-card gap-0 max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="px-6 pt-6 pb-4 border-b border-border shrink-0">
+        <div className="px-6 pt-6 pb-4 pr-14 border-b border-border shrink-0">
           <DialogHeader>
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">

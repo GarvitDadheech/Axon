@@ -161,7 +161,7 @@ export default function McpIntegrationPage() {
 
       <ol className="space-y-2 border border-white/[0.06] px-4 py-3 text-[12px] text-white/45">
         <li>
-          1. Fund your agent + enable a spending policy on the{" "}
+          1. Fund the agent with USDC and enable a spending policy on the{" "}
           <Link href="/dashboard" className="text-emerald-400/80 hover:underline">
             dashboard
           </Link>

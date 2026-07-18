@@ -32,7 +32,7 @@ const ARBITRUM_SEPOLIA_HEX = `0x${ARBITRUM_SEPOLIA_CHAIN_ID.toString(16)}`;
 const USDC_ADDRESS = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d";
 const USDC_DECIMALS = 6;
 
-type Token = "USDC" | "ETH";
+type Token = "USDC";
 type ModalState = "idle" | "sending" | "success" | "error";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ export function TransferModal({
 
   const [recipient, setRecipient] = useState(defaultRecipient);
   const [amount, setAmount] = useState(defaultAmount);
-  const [token, setToken] = useState<Token>("USDC");
+  const [token] = useState<Token>("USDC");
   const [state, setState] = useState<ModalState>("idle");
   const [txHash, setTxHash] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
@@ -95,7 +95,6 @@ export function TransferModal({
   const reset = useCallback(() => {
     setRecipient(defaultRecipient);
     setAmount(defaultAmount);
-    setToken("USDC");
     setState("idle");
     setTxHash(null);
     setErrorMsg("");
@@ -119,30 +118,17 @@ export function TransferModal({
 
       let hash: string;
 
-      if (token === "ETH") {
-        const amountWei = BigInt(Math.round(parseFloat(amount) * 1e18));
-        hash = await provider.request({
-          method: "eth_sendTransaction",
-          params: [{
-            from: fromAddress,
-            to: recipient,
-            value: `0x${amountWei.toString(16)}`,
-            chainId: ARBITRUM_SEPOLIA_HEX,
-          }],
-        }) as string;
-      } else {
-        const amountWei = BigInt(Math.round(parseFloat(amount) * 10 ** USDC_DECIMALS));
-        const data = encodeERC20Transfer(recipient, amountWei);
-        hash = await provider.request({
-          method: "eth_sendTransaction",
-          params: [{
-            from: fromAddress,
-            to: USDC_ADDRESS,
-            data,
-            chainId: ARBITRUM_SEPOLIA_HEX,
-          }],
-        }) as string;
-      }
+      const amountWei = BigInt(Math.round(parseFloat(amount) * 10 ** USDC_DECIMALS));
+      const data = encodeERC20Transfer(recipient, amountWei);
+      hash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{
+          from: fromAddress,
+          to: USDC_ADDRESS,
+          data,
+          chainId: ARBITRUM_SEPOLIA_HEX,
+        }],
+      }) as string;
 
       setTxHash(hash);
       setState("success");
@@ -151,7 +137,7 @@ export function TransferModal({
       setErrorMsg(msg.length > 120 ? msg.slice(0, 120) + "…" : msg);
       setState("error");
     }
-  }, [fromAddress, canSend, token, amount, recipient, ethereumProvider]);
+  }, [fromAddress, canSend, amount, recipient, ethereumProvider]);
 
   const copyHash = useCallback(async () => {
     if (!txHash) return;
@@ -174,7 +160,7 @@ export function TransferModal({
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
                 <ArrowUpRight className="h-4 w-4 text-primary" />
               </div>
-              <DialogTitle className="text-base font-semibold">Transfer Funds</DialogTitle>
+              <DialogTitle className="text-base font-semibold">Transfer USDC</DialogTitle>
             </div>
           </DialogHeader>
         </div>
@@ -264,43 +250,22 @@ export function TransferModal({
                 )}
               </div>
 
-              {/* ── Amount + Token ── */}
+              {/* ── Amount ── */}
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Amount</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.000001"
-                    placeholder="0.00"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="flex-1 text-sm"
-                    disabled={state === "sending"}
-                  />
-                  {/* Token toggle */}
-                  <div className="flex rounded-md border border-border overflow-hidden shrink-0">
-                    {(["USDC", "ETH"] as Token[]).map((t) => (
-                      <button
-                        key={t}
-                        onClick={() => setToken(t)}
-                        disabled={state === "sending"}
-                        className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                          token === t
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                        }`}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {token === "USDC" && (
-                  <p className="text-xs text-muted-foreground/60">
-                    USDC on Arbitrum Sepolia · {USDC_ADDRESS.slice(0, 10)}…
-                  </p>
-                )}
+                <Label className="text-xs text-muted-foreground">Amount (USDC)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.000001"
+                  placeholder="0.00"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="text-sm"
+                  disabled={state === "sending"}
+                />
+                <p className="text-xs text-muted-foreground/60">
+                  USDC on Arbitrum Sepolia
+                </p>
               </div>
 
               {/* ── Error ── */}
@@ -325,7 +290,7 @@ export function TransferModal({
                 ) : (
                   <>
                     <ArrowUpRight className="h-4 w-4" />
-                    Send {amount && parseFloat(amount) > 0 ? `${amount} ${token}` : "Funds"}
+                    Send {amount && parseFloat(amount) > 0 ? `${amount} USDC` : "USDC"}
                   </>
                 )}
               </Button>

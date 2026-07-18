@@ -361,7 +361,7 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <Panel title="Agent wallet & policy" meta="Openfort · required for MCP">
+      <Panel title="Agent wallet & policy" meta="Openfort">
         <AgentWalletPanel
           onFundSepolia={(addr) => {
             setFundRecipient(addr);

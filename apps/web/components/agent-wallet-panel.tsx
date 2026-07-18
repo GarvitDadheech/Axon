@@ -14,7 +14,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { shortenAddress } from "@/lib/utils";
 
 interface AgentInfo {
   agent: {
@@ -152,7 +151,7 @@ export function AgentWalletPanel({
   }
 
   return (
-    <div className="space-y-5 px-5 py-5">
+    <div className="space-y-4 px-5 py-5">
       {error && (
         <p className="border border-red-500/20 bg-red-500/[0.06] px-3 py-2 text-[12px] text-red-300/90">
           {error}
@@ -161,7 +160,6 @@ export function AgentWalletPanel({
 
       {info && (
         <>
-          {/* Agent address */}
           <div>
             <p className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-white/30">
               Openfort agent wallet
@@ -183,154 +181,162 @@ export function AgentWalletPanel({
                 )}
               </button>
             </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-white/40">
+              This wallet pays marketplace APIs on Arbitrum. Gas is sponsored by
+              Openfort — fund it with USDC and set your limits below.
+            </p>
             <p className="mt-1 font-mono text-[10px] text-white/25">
-              Arbitrum Sepolia · {info.balances?.usdc ?? "—"} USDC · Axon pays MCP
-              tools from this address
+              {info.balances?.usdc ?? "—"} USDC available
             </p>
           </div>
 
-          {/* Fund — Sepolia only (UA can't target Sepolia) */}
-          <div className="space-y-2 border border-white/[0.06] p-3">
-            <div className="flex items-center gap-1.5 text-[11px] text-white/45">
-              <Wallet className="h-3.5 w-3.5" /> Fund with Sepolia USDC
-            </div>
-            <p className="text-[11px] leading-relaxed text-white/35">
-              Transfer Arbitrum Sepolia USDC to the agent address above. MCP tools
-              settle on Sepolia — Particle Universal Account moves mainnet assets
-              only, so it can&apos;t fund this wallet.
-            </p>
-            <Button
-              type="button"
-              size="sm"
-              className="w-full font-mono text-[11px]"
-              onClick={() => onFundSepolia?.(info.agent.address)}
-            >
-              Transfer USDC to agent
-              <ArrowRight className="ml-1.5 h-3 w-3" />
-            </Button>
-          </div>
-
-          {/* Spending policy */}
-          <div className="space-y-3 border border-white/[0.06] p-3">
-            <div className="flex items-center justify-between gap-2">
+          <div className="grid gap-3 md:grid-cols-2">
+            {/* Fund */}
+            <div className="flex flex-col gap-3 border border-white/[0.06] p-3">
               <div className="flex items-center gap-1.5 text-[11px] text-white/45">
-                <Shield className="h-3.5 w-3.5" /> Spending policy
+                <Wallet className="h-3.5 w-3.5" /> Fund agent
               </div>
-              <span
-                className={`font-mono text-[10px] uppercase tracking-wider ${
-                  info.policy.enabled
-                    ? "text-emerald-400/80"
-                    : "text-amber-400/80"
-                }`}
-              >
-                {info.policy.enabled ? "Enabled" : "Not set — required for MCP"}
-              </span>
-            </div>
-
-            {!editingPolicy ? (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white/[0.02] px-3 py-2.5">
-                    <p className="font-mono text-[10px] uppercase tracking-wider text-white/30">
-                      Max / call
-                    </p>
-                    <p className="mt-1 font-mono text-[15px] tabular-nums text-foreground/90">
-                      {formatUsdc(info.policy.maxPerCall)}{" "}
-                      <span className="text-[11px] text-white/35">USDC</span>
-                    </p>
-                  </div>
-                  <div className="bg-white/[0.02] px-3 py-2.5">
-                    <p className="font-mono text-[10px] uppercase tracking-wider text-white/30">
-                      Max / day
-                    </p>
-                    <p className="mt-1 font-mono text-[15px] tabular-nums text-foreground/90">
-                      {formatUsdc(info.policy.maxPerDay)}{" "}
-                      <span className="text-[11px] text-white/35">USDC</span>
-                    </p>
-                  </div>
-                </div>
-                <p className="font-mono text-[10px] text-white/25">
-                  Spent today: {formatUsdc(info.policy.spentToday, 4)} USDC
-                </p>
+              <p className="flex-1 text-[11px] leading-relaxed text-white/35">
+                Top up USDC so your agent can keep calling paid tools.
+              </p>
+              <div>
                 <Button
                   type="button"
-                  variant="outline"
                   size="sm"
-                  className="w-full font-mono text-[11px]"
-                  onClick={startEdit}
+                  className="h-8 w-full font-mono text-[11px]"
+                  onClick={() => onFundSepolia?.(info.agent.address)}
                 >
-                  <Pencil className="mr-1.5 h-3 w-3" />
-                  Update policy
+                  Transfer USDC
+                  <ArrowRight className="ml-1.5 h-3 w-3" />
                 </Button>
-              </>
-            ) : (
-              <>
-                <p className="text-[11px] leading-relaxed text-white/35">
-                  Caps for automatic MCP payments from your agent wallet. No
-                  popup per call once enabled.
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label className="text-[10px] text-white/30">
-                      Max / call (USDC)
-                    </Label>
-                    <Input
-                      inputMode="decimal"
-                      value={maxPerCall}
-                      onChange={(e) => setMaxPerCall(e.target.value)}
-                      onBlur={() =>
-                        setMaxPerCall(normalizeUsdcInput(maxPerCall))
-                      }
-                      className="h-8 font-mono text-[12px]"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-[10px] text-white/30">
-                      Max / day (USDC)
-                    </Label>
-                    <Input
-                      inputMode="decimal"
-                      value={maxPerDay}
-                      onChange={(e) => setMaxPerDay(e.target.value)}
-                      onBlur={() => setMaxPerDay(normalizeUsdcInput(maxPerDay))}
-                      className="h-8 font-mono text-[12px]"
-                    />
-                  </div>
+              </div>
+            </div>
+
+            {/* Policy */}
+            <div className="flex flex-col gap-3 border border-white/[0.06] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[11px] text-white/45">
+                  <Shield className="h-3.5 w-3.5" /> Spending policy
                 </div>
-                <p className="font-mono text-[10px] text-white/25">
-                  Spent today: {formatUsdc(info.policy.spentToday, 4)} USDC
-                </p>
-                <div className="flex gap-2">
-                  {info.policy.enabled && (
+                <span
+                  className={`font-mono text-[10px] uppercase tracking-wider ${
+                    info.policy.enabled
+                      ? "text-emerald-400/80"
+                      : "text-amber-400/80"
+                  }`}
+                >
+                  {info.policy.enabled ? "Enabled" : "Required"}
+                </span>
+              </div>
+
+              {!editingPolicy ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-white/[0.02] px-2.5 py-2">
+                      <p className="font-mono text-[10px] uppercase tracking-wider text-white/30">
+                        Max / call
+                      </p>
+                      <p className="mt-1 font-mono text-[14px] tabular-nums text-foreground/90">
+                        {formatUsdc(info.policy.maxPerCall)}{" "}
+                        <span className="text-[10px] text-white/35">USDC</span>
+                      </p>
+                    </div>
+                    <div className="bg-white/[0.02] px-2.5 py-2">
+                      <p className="font-mono text-[10px] uppercase tracking-wider text-white/30">
+                        Max / day
+                      </p>
+                      <p className="mt-1 font-mono text-[14px] tabular-nums text-foreground/90">
+                        {formatUsdc(info.policy.maxPerDay)}{" "}
+                        <span className="text-[10px] text-white/35">USDC</span>
+                      </p>
+                    </div>
+                  </div>
+                  <p className="font-mono text-[10px] text-white/25">
+                    Spent today {formatUsdc(info.policy.spentToday, 4)} USDC
+                  </p>
+                  <div>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="flex-1 font-mono text-[11px]"
-                      disabled={savingPolicy}
-                      onClick={cancelEdit}
+                      className="h-8 w-full font-mono text-[11px]"
+                      onClick={startEdit}
                     >
-                      Cancel
+                      <Pencil className="mr-1.5 h-3 w-3" />
+                      Update
                     </Button>
-                  )}
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="flex-1 font-mono text-[11px]"
-                    disabled={savingPolicy}
-                    onClick={savePolicy}
-                  >
-                    {savingPolicy ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : info.policy.enabled ? (
-                      "Save limits"
-                    ) : (
-                      "Enable spending"
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-[11px] leading-relaxed text-white/35">
+                    Set how much this agent can spend per call and per day.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-[10px] text-white/30">
+                        Max / call
+                      </Label>
+                      <Input
+                        inputMode="decimal"
+                        value={maxPerCall}
+                        onChange={(e) => setMaxPerCall(e.target.value)}
+                        onBlur={() =>
+                          setMaxPerCall(normalizeUsdcInput(maxPerCall))
+                        }
+                        className="h-8 font-mono text-[12px]"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] text-white/30">
+                        Max / day
+                      </Label>
+                      <Input
+                        inputMode="decimal"
+                        value={maxPerDay}
+                        onChange={(e) => setMaxPerDay(e.target.value)}
+                        onBlur={() =>
+                          setMaxPerDay(normalizeUsdcInput(maxPerDay))
+                        }
+                        className="h-8 font-mono text-[12px]"
+                      />
+                    </div>
+                  </div>
+                  <p className="font-mono text-[10px] text-white/25">
+                    Spent today {formatUsdc(info.policy.spentToday, 4)} USDC
+                  </p>
+                  <div className="flex gap-2">
+                    {info.policy.enabled && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 flex-1 font-mono text-[11px]"
+                        disabled={savingPolicy}
+                        onClick={cancelEdit}
+                      >
+                        Cancel
+                      </Button>
                     )}
-                  </Button>
-                </div>
-              </>
-            )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 flex-1 font-mono text-[11px]"
+                      disabled={savingPolicy}
+                      onClick={savePolicy}
+                    >
+                      {savingPolicy ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : info.policy.enabled ? (
+                        "Save"
+                      ) : (
+                        "Enable"
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </>
       )}
